@@ -1,0 +1,7 @@
+{
+  "name": "final 07 Cafe (final edit)",
+  "description": "A comprehensive digital record-keeping and management system for restaurant owners, featuring order tracking, inventory management, expense monitoring, and AI-powered business insights.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
