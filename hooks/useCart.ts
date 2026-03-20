@@ -1,111 +1,71 @@
 import { useState, useEffect, useCallback } from "react";
-import { cartAPI, Cart, AddToCartRequest } from "../api/cart";
+import { cartAPI } from "../api/cart";
+import { ApiCart, ApiCartItem } from "../types";
 
 export const useCart = (tableId?: string) => {
-
-  const [cart, setCart] = useState<Cart | null>(null);
-
+  const [cart, setCart] = useState<ApiCart | null>(null);
   const [loading, setLoading] = useState(false);
-
   const [error, setError] = useState<string | null>(null);
 
-  //////////////////////////////////////////////////////
-  // FETCH CART
-  //////////////////////////////////////////////////////
-
-  const fetchCart = useCallback(async (id: string) => {
-
+  const fetchCart = useCallback(async () => {
+    if (!tableId) return;
     try {
-
       setLoading(true);
-
-      const data = await cartAPI.getByTable(id);
-
+      setError(null);
+      const data = await cartAPI.getByTable(tableId);
       setCart(data);
-
     } catch (err: any) {
-
-      setError(err?.response?.data?.message || "Failed to fetch cart");
-
+      if (err?.response?.status === 404) {
+        // No cart exists for this table yet, which is fine
+        setCart({ id: '', tableId: tableId, cartItems: [] });
+      } else {
+        setError(err?.response?.data?.message || "Failed to fetch cart");
+      }
     } finally {
-
       setLoading(false);
-
     }
+  }, [tableId]);
 
-  }, []);
-
-  //////////////////////////////////////////////////////
-  // ADD ITEM
-  //////////////////////////////////////////////////////
-
-  const addToCart = async (data: AddToCartRequest) => {
-
-    const updated = await cartAPI.addItem(data);
-
-    setCart(updated);
-
-    return updated;
-
+  const addToCartBackend = async (menuItemId: string, quantity: number) => {
+    if (!tableId) return;
+    try {
+      setLoading(true);
+      const updatedCart = await cartAPI.addItem({ tableId, menuItemId, quantity });
+      setCart(updatedCart);
+      return updatedCart;
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Failed to add item to cart");
+      throw err;
+    } finally {
+      setLoading(false);
+    }
   };
 
-  //////////////////////////////////////////////////////
-  // REMOVE ITEM
-  //////////////////////////////////////////////////////
-
-  const removeFromCart = async (itemId: string) => {
-
-    await cartAPI.removeItem(itemId);
-
-    setCart(prev =>
-      prev
-        ? { ...prev, items: prev.items.filter(i => i.id !== itemId) }
-        : prev
-    );
-
+  const sendToKitchen = async (orderType: 'DINE_IN' | 'TAKEAWAY') => {
+    if (!tableId) return;
+    try {
+      setLoading(true);
+      const result = await cartAPI.sendToKitchen(tableId, orderType);
+      setCart({ ...cart!, cartItems: [] }); // Clear local cart items upon success
+      return result;
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Failed to send order to kitchen");
+      throw err;
+    } finally {
+      setLoading(false);
+    }
   };
-
-  //////////////////////////////////////////////////////
-  // SEND TO KITCHEN
-  //////////////////////////////////////////////////////
-
-  const sendToKitchen = async (orderType: "DINE_IN" | "TAKEAWAY") => {
-
-    if (!tableId) throw new Error("Table ID required");
-
-    await cartAPI.sendToKitchen(tableId, orderType);
-
-    setCart(null);
-
-  };
-
-  //////////////////////////////////////////////////////
-  // INIT
-  //////////////////////////////////////////////////////
 
   useEffect(() => {
-
-    if (tableId)
-      fetchCart(tableId);
-
+    if (tableId) fetchCart();
   }, [tableId, fetchCart]);
 
   return {
-
     cart,
-
     loading,
-
     error,
-
-    addToCart,
-
-    removeFromCart,
-
+    fetchCart,
+    addToCartBackend,
     sendToKitchen,
-
-    refetch: tableId ? () => fetchCart(tableId) : undefined,
-
   };
-
 };

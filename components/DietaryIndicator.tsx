@@ -2,7 +2,7 @@
 import React from 'react';
 
 interface DietaryIndicatorProps {
-  dietary: 'Veg' | 'Non-Veg' | 'All';
+  dietary: 'VEG' | 'NON_VEG' | 'All' | 'Veg' | 'Non-Veg';
   size?: 'sm' | 'md' | 'lg';
   onClick?: (e: React.MouseEvent) => void;
   className?: string;
@@ -22,18 +22,19 @@ const DietaryIndicator: React.FC<DietaryIndicatorProps> = ({ dietary, size = 'md
   };
 
   const getStyles = () => {
-    switch (dietary) {
-      case 'Veg':
+    switch (dietary.toUpperCase()) {
+      case 'VEG':
         return {
           border: 'border-green-600',
           dot: 'bg-green-600'
         };
-      case 'Non-Veg':
+      case 'NON_VEG':
+      case 'NON-VEG':
         return {
           border: 'border-red-600',
           dot: 'bg-red-600'
         };
-      case 'All':
+      case 'ALL':
         return {
           border: 'border-gray-400',
           dot: 'bg-gray-400'
@@ -45,6 +46,7 @@ const DietaryIndicator: React.FC<DietaryIndicatorProps> = ({ dietary, size = 'md
         };
     }
   };
+
 
   const styles = getStyles();
 

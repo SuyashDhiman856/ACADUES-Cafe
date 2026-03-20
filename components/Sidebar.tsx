@@ -12,6 +12,7 @@ import {
   Sparkles,
   Truck,
   LogOut,
+  ShoppingBag,
 } from "lucide-react";
 
 import { SystemSettings } from "../types/systemSettings";
@@ -34,6 +35,7 @@ interface MenuItem {
 
 const MENU_ITEMS: MenuItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "table-ordering", label: "Table Cart", icon: ShoppingBag },
   { id: "self-order", label: "Self Order", icon: ScrollText },
   { id: "delivery", label: "Deliver", icon: Truck },
   { id: "kitchen", label: "Kitchen View", icon: ChefHat },

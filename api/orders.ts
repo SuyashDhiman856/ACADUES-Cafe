@@ -1,148 +1,103 @@
-import apiClient from "./client";
+import apiClient from './client';
+import { ApiOrder, CreateOrderDto, OrderStatus, User } from '../types';
 
-export interface OrderItemRequest {
-
-  menuItemId: string;
-
-  quantity: number;
-
-  sizeId?: string;
-
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
 }
 
-export interface CreateOrderRequest {
-
-  orderType: "DINE_IN" | "TAKEAWAY";
-
-  items: OrderItemRequest[];
-
+/** Nest may return a raw array or { data: T[] } */
+function parseOrderList(payload: unknown): ApiOrder[] {
+  if (Array.isArray(payload)) return payload as ApiOrder[];
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'data' in payload &&
+    Array.isArray((payload as { data: unknown }).data)
+  ) {
+    return (payload as { data: ApiOrder[] }).data;
+  }
+  return [];
 }
 
-export interface OrderItem {
-
-  id: string;
-
-  menuItemId: string;
-
-  quantity: number;
-
-  price: number;
-
-  total: number;
-
+/** Nest may return the entity or { data: entity } */
+function parseOrderEntity(payload: unknown): ApiOrder {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'data' in payload &&
+    (payload as { data: unknown }).data !== undefined &&
+    typeof (payload as { data: unknown }).data === 'object' &&
+    !Array.isArray((payload as { data: unknown }).data)
+  ) {
+    return (payload as { data: ApiOrder }).data;
+  }
+  return payload as ApiOrder;
 }
 
-export interface Order {
-
-  id: string;
-
-  tableId?: string;
-
-  chefId?: string;
-
-  orderType: "DINE_IN" | "TAKEAWAY";
-
-  status:
-    | "CREATED"
-    | "SENT_TO_KITCHEN"
-    | "PREPARING"
-    | "READY"
-    | "COMPLETED"
-    | "CANCELLED";
-
-  subtotal: number;
-
-  gstRate: number;
-
-  totalAmount: number;
-
-  createdAt: string;
-
-  updatedAt: string;
-
-  orderItems: OrderItem[];
-
+function parseUserEntity(payload: unknown): User {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'data' in payload &&
+    (payload as { data: unknown }).data !== undefined
+  ) {
+    return (payload as { data: User }).data;
+  }
+  return payload as User;
 }
-
 
 export const ordersAPI = {
-  create: async (
+  createOrderForTable: async (
     tableId: string,
-    data: CreateOrderRequest
-  ): Promise<Order> => {
-
-    const res =
-      await apiClient.post<Order>(
-        `/orders/table/${tableId}`,
-        data
-      );
-
-    return res.data;
-
+    orderData: CreateOrderDto
+  ): Promise<ApiOrder> => {
+    const response = await apiClient.post<unknown>(
+      `/orders/table/${tableId}`,
+      orderData
+    );
+    return parseOrderEntity(response.data);
   },
 
-  getAll: async (): Promise<Order[]> => {
-
-    const res =
-      await apiClient.get<Order[]>("/orders");
-
-    return res.data;
-
+  getOrdersByTable: async (tableId: string): Promise<ApiOrder[]> => {
+    const response = await apiClient.get<unknown>(`/orders/table/${tableId}`);
+    return parseOrderList(response.data);
   },
 
-  getById: async (
-    orderId: string
-  ): Promise<Order> => {
-
-    const res =
-      await apiClient.get<Order>(
-        `/orders/${orderId}`
-      );
-
-    return res.data;
-
+  getMyOrders: async (): Promise<ApiOrder[]> => {
+    const response = await apiClient.get<unknown>('/orders/my-orders');
+    return parseOrderList(response.data);
   },
 
-  getByTable: async (
-    tableId: string
-  ): Promise<Order[]> => {
-
-    const res =
-      await apiClient.get<Order[]>(
-        `/orders/table/${tableId}`
-      );
-
-    return res.data;
-
+  getAllOrders: async (): Promise<ApiOrder[]> => {
+    const response = await apiClient.get<unknown>('/orders');
+    return parseOrderList(response.data);
   },
 
-  updateStatus: async (
+  getChefForOrder: async (orderId: string): Promise<User> => {
+    const response = await apiClient.get<unknown>(`/orders/${orderId}/chef`);
+    return parseUserEntity(response.data);
+  },
+
+  updateOrderStatus: async (
     orderId: string,
-    status: Order["status"]
-  ): Promise<Order> => {
-
-    const res =
-      await apiClient.patch<Order>(
-        `/orders/${orderId}/status`,
-        { status }
-      );
-
-    return res.data;
-
+    status: OrderStatus
+  ): Promise<ApiOrder> => {
+    const response = await apiClient.patch<unknown>(
+      `/orders/${orderId}/status`,
+      { status }
+    );
+    return parseOrderEntity(response.data);
   },
 
-  assignChef: async (
+  assignChefToOrder: async (
     orderId: string,
     chefId: string
-  ): Promise<Order> => {
-
-    const res =
-      await apiClient.patch<Order>(
-        `/orders/${orderId}/assign-chef/${chefId}`
-      );
-
-    return res.data;
-
+  ): Promise<ApiOrder> => {
+    const response = await apiClient.patch<unknown>(
+      `/orders/${orderId}/assign-chef/${chefId}`
+    );
+    return parseOrderEntity(response.data);
   },
-
 };

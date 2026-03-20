@@ -1,10 +1,11 @@
 
 export enum OrderStatus {
-  COMPLETED = 'Completed',
-  PENDING = 'Pending',
-  CANCELLED = 'Cancelled',
-  IN_PROGRESS = 'In Progress',
-  ACTIVE = 'Active' // For open tabs/tables
+  CREATED = 'CREATED',
+  SENT_TO_KITCHEN = 'SENT_TO_KITCHEN',
+  PREPARING = 'PREPARING',
+  READY = 'READY',
+  SERVED = 'SERVED',
+  CANCELLED = 'CANCELLED'
 }
 
 export enum ItemStatus {
@@ -22,18 +23,23 @@ export enum PaymentMethod {
 }
 
 export enum OrderType {
-  DINE_IN = 'Dine-in',
-  TAKEAWAY = 'Takeaway',
-  DELIVERY = 'Delivery'
+  DINE_IN = 'DINE_IN',
+  TAKEAWAY = 'TAKEAWAY'
 }
 
 export enum UserRole {
-  OWNER = 'Owner',
-  MANAGER = 'Manager',
-  STAFF = 'Staff',
-  KITCHEN = 'Kitchen',
-  CHEF = "CHEF",
-  CUSTOMER = "CUSTOMER"
+  OWNER = 'OWNER',
+  CHEF = 'CHEF',
+  CUSTOMER = 'CUSTOMER',
+  STAFF = 'STAFF'
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  phone?: string;
 }
 
 export interface StaffMember {
@@ -49,9 +55,9 @@ export interface StaffMember {
 }
 
 export interface MenuVariant {
-  size: string;
+  id: string;
+  name: string;
   price: number;
-  cost: number;
 }
 
 export interface OrderItem {
@@ -88,18 +94,17 @@ export interface Order {
 
 export interface MenuItem {
   id: string;
-  tenantId: string; // Multi-tenant safety
   name: string;
+  description?: string;
   category: string;
-  price: number; // Base price or starting price
-  cost: number;  // Base cost
-  stock: number;
+  price: number;
   image: string;
-  dietary: 'Veg' | 'Non-Veg' | 'Egg';
-  hasVariants: boolean;
-  variants?: MenuVariant[];
-  isAvailable: boolean; // Added for availability toggle
+  dietary: 'VEG' | 'NON_VEG';
+  hasSizes: boolean;
+  sizes?: MenuVariant[];
+  isAvailable: boolean;
 }
+
 
 export interface Expense {
   id: string;
@@ -132,24 +137,28 @@ export interface Offer {
 }
 
 export interface SystemSettings {
+  id: string;
   restaurantName: string;
   address: string;
   phone: string;
-  gstEnabled: boolean;
-  gstPercentage: number;
-  gstNumber: string;
-  serviceChargeEnabled: boolean;
-  serviceChargePercentage: number;
+  contactEmail?: string;
+  primaryColor: string;
   currency: string;
-  orderIdPrefix: string;
-  expenseCashSplit: number; // Percentage (0-1) of expenses taken from Cash vs Bank
-  tables: string[]; // List of available tables
-  primaryColor: string; // Theme color
-  logoUrl?: string; // Brand logo
-  upiId: string; // Added for UPI payments
+  currencySymbol: string;
   whatsappEnabled: boolean;
-  whatsappConfirmationTemplate: string;
-  whatsappSettledTemplate: string;
+  gstPercentage: number;
+  totalTables: number;
+  upiId?: string;
+  gstNumber?: string;
+  whatsappConfirmationTemplate?: string;
+  whatsappSettledTemplate?: string;
+  tables: string[];
+  logoUrl?: string;
+  geoLatitude?: number;
+  geoLongitude?: number;
+  enableChefAutoAssign: boolean;
+  enableAutoAcceptOrders: boolean;
+  maintenanceMode: boolean;
 }
 
 export interface BusinessStats {
@@ -183,25 +192,47 @@ export interface ApiCategory {
   updatedAt?: string;
 }
 
+export interface ApiTable {
+  id: string;
+  name: string;
+}
+
+export interface ApiOrderItem {
+  menuItemId: string;
+  quantity: number;
+  price: number;
+  total: number;
+  sizeId?: string;
+  menuItem?: MenuItem | { name?: string; id?: string };
+}
+
 export interface ApiOrder {
   id: string;
-  tableId?: string;
-  orderType: 'DINE_IN' | 'TAKEAWAY';
-  items: Array<{
-    id: string;
-    menuItemId: string;
-    quantity: number;
-    sizeId?: string;
-    price: number;
-    name: string;
-  }>;
+  tableId: string;
+  customerId?: string | null;
+  customerName?: string;
+  customerPhone?: string;
+  chefId?: string | null;
+  orderType: OrderType;
+  status: OrderStatus;
   subtotal: number;
-  gstAmount: number;
-  total: number;
-  status: 'CREATED' | 'SENT_TO_KITCHEN' | 'PREPARING' | 'READY' | 'COMPLETED' | 'CANCELLED';
+  gstRate: number;
+  totalAmount: number;
   createdAt: string;
-  updatedAt?: string;
-  chefId?: string;
+  orderItems: ApiOrderItem[];
+  table?: ApiTable;
+  chef?: User;
+}
+
+export interface CreateOrderDto {
+  orderType: OrderType;
+  customerName?: string;
+  customerPhone?: string;
+  items: Array<{
+    menuItemId: string;
+    sizeId?: string;
+    quantity: number;
+  }>;
 }
 
 export interface ApiSettings {
@@ -218,4 +249,24 @@ export interface ApiSettings {
   totalTables: number;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface ApiCartItem {
+  id: string;
+  cartId: string;
+  menuItemId: string;
+  quantity: number;
+  menuItem: MenuItem;
+}
+
+export interface ApiCart {
+  id: string;
+  tableId: string;
+  cartItems: ApiCartItem[];
+}
+
+export interface AddItemToCartDto {
+  tableId: string;
+  menuItemId: string;
+  quantity: number;
 }

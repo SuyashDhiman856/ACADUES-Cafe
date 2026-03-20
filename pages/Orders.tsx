@@ -1,304 +1,192 @@
-
-import React, { useState } from 'react';
-import { Search, Filter, Download, ExternalLink, Calendar as CalendarIcon, Plus, X, Receipt, Printer, Share2, FileSpreadsheet, RotateCcw, MessageSquare, AlertTriangle, MessageCircle } from 'lucide-react';
-import { Order, OrderStatus, PaymentMethod, SystemSettings } from '../types';
-import { exportToCSV } from '../lib/exportUtils';
-import { shareOnWhatsApp } from '../lib/communicationUtils';
+import React, { useState, useMemo } from 'react';
+import { Search, Plus, X, Receipt, Printer, Share2, FileSpreadsheet, AlertTriangle, UserPlus, CheckCircle2, Clock, Trash2, RefreshCw } from 'lucide-react';
+import { ApiOrder, OrderStatus, OrderType, User, UserRole } from '../types';
 import { useOrders } from '../hooks/useOrders';
-import { useSettings } from '../hooks/useSettings';
+import { exportToCSV } from '../lib/exportUtils';
 
 interface OrdersProps {
   onNewOrder: () => void;
 }
 
-const CANCEL_REASONS = [
-  'Wrong Entry / Clerical Error',
-  'Duplicate Order',
-  'Customer Refused Payment',
-  'Order Preparation Cancelled',
-  'Payment Failed',
-  'Other'
-];
-
 const Orders: React.FC<OrdersProps> = ({ onNewOrder }) => {
-  const { orders: ordersData, loading, error, updateOrderStatus } = useOrders();
-  const orders = Array.isArray(ordersData) ? ordersData : [];
-  const { settings, loading: settingsLoading } = useSettings();
-
+  const { orders: ordersData, loading, updateOrderStatus, assignChef, fetchOrders } = useOrders();
+  const orders = Array.isArray(ordersData) ? (ordersData as ApiOrder[]) : [];
+  
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [cancellingOrder, setCancellingOrder] = useState<Order | null>(null);
-  const [cancelReason, setCancelReason] = useState(CANCEL_REASONS[0]);
-  const [customReason, setCustomReason] = useState('');
+  const [selectedOrder, setSelectedOrder] = useState<ApiOrder | null>(null);
+  const [assigningOrder, setAssigningOrder] = useState<ApiOrder | null>(null);
 
-  // Show loading state while settings are being fetched
-  if (settingsLoading || !settings) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#D17842] mx-auto mb-4"></div>
-          <p className="text-[#8E8E93] font-medium">Loading orders...</p>
-        </div>
-      </div>
+  const filteredOrders = useMemo(() => {
+    return orders.filter(o => 
+      o.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      o.customerName?.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }
-
-  const filteredOrders = orders.filter(order => 
-    order.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (order.customerName && order.customerName.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  }, [orders, searchTerm]);
 
   const handleExport = () => {
-    const exportData = orders.map(o => ({
+    const data = orders.map(o => ({
       ID: o.id,
-      Date: new Date(o.createdAt).toLocaleDateString(),
-      Time: new Date(o.createdAt).toLocaleTimeString(),
-      Customer: o.customerName || 'Guest',
       Type: o.orderType,
-      Status: o.isCancelled ? 'Reverted' : o.status,
-      Reason: o.cancellationReason || '',
-      Method: o.paymentMethod,
+      Status: o.status,
       Amount: o.totalAmount,
-      Tax: o.gstAmount
+      Date: new Date(o.createdAt).toLocaleString()
     }));
-    exportToCSV(exportData, 'Orders_Report');
+    exportToCSV(data, 'Cafe_Orders_Report');
   };
 
-  const handleCancelOrder = async (orderId: string, reason: string) => {
-    try {
-      await updateOrderStatus(orderId, 'CANCELLED');
-      // Note: The API might need to be updated to handle cancellation reasons
-    } catch (err) {
-      console.error('Failed to cancel order:', err);
-    }
-  };
-
-  const confirmCancel = () => {
-    if (!cancellingOrder) return;
-    const finalReason = cancelReason === 'Other' ? customReason : cancelReason;
-    handleCancelOrder(cancellingOrder.id, finalReason);
-    setCancellingOrder(null);
-    setCancelReason(CANCEL_REASONS[0]);
-    setCustomReason('');
+  const renderStatusBadge = (status: OrderStatus) => {
+    const formulas: Record<OrderStatus, string> = {
+      [OrderStatus.CREATED]: 'bg-orange-50 text-orange-600',
+      [OrderStatus.SENT_TO_KITCHEN]: 'bg-blue-50 text-blue-600',
+      [OrderStatus.PREPARING]: 'bg-blue-100 text-blue-800',
+      [OrderStatus.READY]: 'bg-green-50 text-green-600',
+      [OrderStatus.SERVED]: 'bg-[#1C1C1E] text-white',
+      [OrderStatus.CANCELLED]: 'bg-red-50 text-red-600'
+    };
+    return (
+      <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${formulas[status]}`}>
+        {status.replace(/_/g, ' ')}
+      </span>
+    );
   };
 
   return (
-    <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-      {/* Cancellation Modal */}
-      {cancellingOrder && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl overflow-hidden p-10 space-y-8 animate-in zoom-in duration-300">
-            <div className="flex flex-col items-center text-center space-y-4">
-              <div className="p-4 bg-red-50 text-red-500 rounded-full animate-pulse">
-                <AlertTriangle size={48} strokeWidth={2.5} />
-              </div>
-              <div>
-                <h3 className="text-2xl font-black text-[#1C1C1E]">Revert Order?</h3>
-                <p className="text-sm font-medium text-gray-400">Entry for #{cancellingOrder.id} will be greyed out and removed from all totals.</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest px-1">Select Reason</label>
-              <div className="grid grid-cols-1 gap-2">
-                {CANCEL_REASONS.map(r => (
-                  <button 
-                    key={r} 
-                    onClick={() => setCancelReason(r)}
-                    className={`px-6 py-4 rounded-2xl text-left text-xs font-bold transition-all border-2 ${cancelReason === r ? 'border-[#D17842] bg-orange-50 text-[#D17842]' : 'border-gray-100 text-gray-500 hover:border-gray-200'}`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-              {cancelReason === 'Other' && (
-                <textarea 
-                  placeholder="Enter specific reason..." 
-                  className="w-full p-6 rounded-[24px] bg-[#F9F5F2] border-none font-bold text-sm focus:ring-2 focus:ring-[#D17842] mt-2"
-                  value={customReason}
-                  onChange={e => setCustomReason(e.target.value)}
-                  rows={3}
-                />
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <button onClick={() => setCancellingOrder(null)} className="py-4 bg-gray-100 rounded-[24px] font-black uppercase text-[10px] tracking-widest text-gray-400 active:scale-95 transition-all">Dismiss</button>
-              <button onClick={confirmCancel} className="py-4 bg-red-500 text-white rounded-[24px] font-black uppercase text-[10px] tracking-widest shadow-xl shadow-red-100 active:scale-95 transition-all">Confirm Revert</button>
-            </div>
-          </div>
+    <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+      {/* Assign Chef Modal Placeholder */}
+      {assigningOrder && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+           <div className="bg-white w-full max-w-sm rounded-[40px] shadow-2xl p-10 space-y-8 animate-in zoom-in duration-300">
+             <div className="text-center space-y-2">
+               <div className="p-4 bg-orange-50 text-[#D17842] rounded-full w-fit mx-auto">
+                 <UserPlus size={48} strokeWidth={2.5} />
+               </div>
+               <h3 className="text-2xl font-black text-[#1C1C1E]">Assign Chef</h3>
+               <p className="text-sm font-medium text-gray-400 font-mono">Order #{assigningOrder.id.slice(-6)}</p>
+             </div>
+             
+             <div className="space-y-3">
+               <button 
+                onClick={async () => {
+                  // MOCK ASSIGNMENT (Wait for chef list API)
+                  alert("Assigning to Chef..."); 
+                  setAssigningOrder(null);
+                }}
+                className="w-full py-4 bg-[#F9F5F2] hover:bg-orange-50 rounded-2xl text-[10px] font-black uppercase tracking-widest text-[#1C1C1E] border border-transparent hover:border-[#D17842] transition-all"
+               >
+                 Auto-Assign (Least Busy)
+               </button>
+             </div>
+             
+             <button onClick={() => setAssigningOrder(null)} className="w-full py-4 text-gray-400 font-black uppercase text-[10px] tracking-widest">Cancel</button>
+           </div>
         </div>
       )}
 
       {selectedOrder && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden border border-[#F1E7E1] animate-in zoom-in duration-300">
-            <div className={`p-10 space-y-8 ${selectedOrder.isCancelled ? 'opacity-60 grayscale-[0.4]' : ''}`}>
-               <div className="flex justify-between items-start">
-                  <div className="p-3 bg-orange-50 text-[#D17842] rounded-2xl">
-                    <Receipt size={32} strokeWidth={2.5} />
-                  </div>
-                  <div className="flex gap-2">
-                    {selectedOrder.customerPhone && settings.whatsappEnabled && !selectedOrder.isCancelled && (
-                      <button 
-                        onClick={() => shareOnWhatsApp(selectedOrder, settings, selectedOrder.status === OrderStatus.COMPLETED ? 'SETTLE' : 'CONFIRM')}
-                        className="p-3 bg-green-50 text-green-600 rounded-2xl hover:scale-110 active:scale-90 transition-all"
-                      >
-                        <MessageCircle size={24} fill="currentColor" strokeWidth={0} />
-                      </button>
-                    )}
-                    <button onClick={() => setSelectedOrder(null)} className="p-2 hover:bg-gray-100 rounded-full">
-                      <X size={24} className="text-gray-400" />
-                    </button>
-                  </div>
-               </div>
-
-               <div className="flex flex-col items-center text-center space-y-1">
-                  {selectedOrder.isCancelled && <span className="bg-red-500 text-white px-4 py-1 rounded-full text-[10px] font-black uppercase mb-2 tracking-[0.2em] shadow-lg">REVERTED ENTRY</span>}
-                  <h3 className={`text-2xl font-black text-[#1C1C1E] ${selectedOrder.isCancelled ? 'line-through' : ''}`}>{settings.restaurantName}</h3>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{settings.address}</p>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PH: {settings.phone}</p>
-               </div>
-
-               {selectedOrder.isCancelled && (
-                 <div className="bg-red-50 p-5 rounded-3xl border border-red-100 text-center">
-                    <p className="text-[10px] font-black uppercase text-red-400 tracking-widest mb-1">Cancellation Reason</p>
-                    <p className="text-sm font-bold text-red-600 italic">"{selectedOrder.cancellationReason}"</p>
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+          <div className="bg-white w-full max-w-md rounded-[48px] shadow-2xl p-10 space-y-8 animate-in zoom-in duration-300">
+            <div className="flex justify-between items-start">
+               <Receipt size={40} className="text-[#D17842]" strokeWidth={2.5} />
+               <button onClick={() => setSelectedOrder(null)} className="p-2 hover:bg-gray-100 rounded-full"><X size={24} /></button>
+            </div>
+            
+            <div className="border-y border-dashed border-[#F1E7E1] py-8 space-y-4 font-mono">
+               {selectedOrder.orderItems.map((item, idx) => (
+                 <div key={idx} className="flex justify-between items-center text-sm">
+                   <span className="font-bold">{item.quantity}x {item.menuItem?.name}</span>
+                   <span className="font-black text-[#8E8E93]">₹{item.total.toLocaleString()}</span>
                  </div>
-               )}
+               ))}
+            </div>
 
-               <div className="border-y border-dashed border-[#F1E7E1] py-6 space-y-4">
-                  <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-gray-400">
-                    <span>Order: {selectedOrder.id}</span>
-                    <span>{new Date(selectedOrder.createdAt).toLocaleString('en-IN')}</span>
-                  </div>
-                  <div className="space-y-3">
-                    {selectedOrder.items.map((item, index) => (
-                      <div key={`${item.id}-${index}`} className="flex justify-between items-center">
-                        <span className={`text-sm font-bold text-[#1C1C1E] ${selectedOrder.isCancelled ? 'line-through opacity-40' : ''}`}>{item.quantity}x {item.name}</span>
-                        <span className={`text-sm font-black ${selectedOrder.isCancelled ? 'line-through opacity-40' : ''}`}>₹ {(item.price * item.quantity).toLocaleString('en-IN')}</span>
-                      </div>
-                    ))}
-                  </div>
+            <div className="space-y-2">
+               <div className="flex justify-between text-gray-400 text-[10px] font-black uppercase tracking-widest">
+                  <span>Subtotal</span>
+                  <span>₹{selectedOrder.subtotal.toLocaleString()}</span>
                </div>
-
-               <div className="space-y-2">
-                  <div className="flex justify-between text-xs font-bold text-gray-500">
-                    <span>Subtotal</span>
-                    <span className={selectedOrder.isCancelled ? 'line-through opacity-40' : ''}>₹ {(selectedOrder.totalAmount - selectedOrder.gstAmount).toLocaleString('en-IN')}</span>
-                  </div>
-                  <div className="flex justify-between text-xs font-bold text-gray-500">
-                    <span>GST ({selectedOrder.gstPercentage}%)</span>
-                    <span className={selectedOrder.isCancelled ? 'line-through opacity-40' : ''}>₹ {selectedOrder.gstAmount.toLocaleString('en-IN')}</span>
-                  </div>
-                  <div className="flex justify-between pt-4 border-t border-[#1C1C1E] items-center">
-                    <span className="text-sm font-black uppercase tracking-widest">Grand Total</span>
-                    <span className={`text-3xl font-black text-[#D17842] ${selectedOrder.isCancelled ? 'line-through opacity-40' : ''}`}>₹ {selectedOrder.totalAmount.toLocaleString('en-IN')}</span>
-                  </div>
-               </div>
-
-               <div className="grid grid-cols-2 gap-4">
-                  <button onClick={() => window.print()} className="flex items-center justify-center gap-3 py-4 bg-[#F9F5F2] text-[#1C1C1E] rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all">
-                    <Printer size={18} /> Print Bill
-                  </button>
-                  <button className="flex items-center justify-center gap-3 py-4 bg-[#1C1C1E] text-white rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all">
-                    <Share2 size={18} /> Share Digital
-                  </button>
+               <div className="flex justify-between items-center pt-4">
+                  <span className="text-xl font-black text-[#1C1C1E] uppercase tracking-widest">Total</span>
+                  <span className="text-4xl font-black text-[#D17842]">₹{selectedOrder.totalAmount.toLocaleString()}</span>
                </div>
             </div>
+
+            <button onClick={() => setSelectedOrder(null)} className="w-full py-5 bg-[#1C1C1E] text-white rounded-3xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl active:scale-95 transition-all">Dismiss</button>
           </div>
         </div>
       )}
 
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h2 className="text-3xl font-extrabold text-[#2D2D2D] tracking-tight">Order Logs</h2>
-          <p className="text-[#6B7280]">Digital repository of all your business receipts.</p>
+           <h2 className="text-4xl font-black text-[#1C1C1E] tracking-tight">Order Management</h2>
+           <p className="text-gray-400 font-bold uppercase tracking-[0.2em] text-[10px] mt-1">Full System Activity Logs</p>
         </div>
-        <div className="flex gap-3">
-          <button 
-            onClick={handleExport}
-            className="flex items-center gap-2 bg-[#1C1C1E] text-white px-6 py-3 rounded-2xl font-bold shadow-lg"
-          >
-            <FileSpreadsheet size={18} />
-            <span>Export CSV</span>
+        <div className="flex items-center gap-3">
+          <button onClick={handleExport} className="flex items-center gap-3 bg-[#1C1C1E] text-white px-8 py-4 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-800 transition-all shadow-xl shadow-black/10">
+            <FileSpreadsheet size={18} /> Export CSV
           </button>
-          <button 
-            onClick={onNewOrder}
-            className="flex items-center gap-2 bg-[#D17842] text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-orange-100"
-          >
-            <Plus size={18} />
-            <span>New Order</span>
+          <button onClick={onNewOrder} className="flex items-center gap-3 bg-[#D17842] text-white px-8 py-4 rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-[#B66030] transition-all shadow-xl shadow-orange-100">
+            <Plus size={18} /> New Live Order
           </button>
         </div>
       </header>
 
-      <div className="bg-white rounded-[40px] border border-[#F1E7E1] shadow-sm">
-        <div className="p-4 md:p-8 border-b border-[#F1E7E1] flex flex-col md:flex-row gap-4 items-center justify-between">
-          <div className="relative w-full md:w-96">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9CA3AF]" size={18} />
-            <input
-              type="text"
-              placeholder="Search ID or Customer..."
-              className="w-full pl-12 pr-4 py-4 bg-[#F9F5F2] border-none rounded-2xl text-sm font-bold shadow-inner"
+      <div className="bg-white rounded-[40px] border border-[#F1E7E1] shadow-sm overflow-hidden">
+        <div className="p-6 md:p-8 border-b border-[#F1E7E1] flex gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+            <input 
+              type="text" 
+              placeholder="Search by ID or Customer Name..." 
+              className="w-full pl-16 pr-6 py-5 bg-[#F9F5F2] border-none rounded-[24px] font-bold text-sm outline-none focus:ring-2 focus:ring-[#D17842]/20 transition-all"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={e => setSearchTerm(e.target.value)}
             />
           </div>
+          <button type="button" onClick={() => void fetchOrders()} className="p-5 bg-[#F9F5F2] rounded-[24px] text-gray-400 hover:text-[#D17842] transition-all active:scale-95">
+             <RefreshCw size={24} />
+          </button>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto no-scrollbar">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-[#FDFCFB]">
-                <th className="px-8 py-5 text-[10px] font-black text-[#6B7280] uppercase tracking-widest">Order Details</th>
-                <th className="px-8 py-5 text-[10px] font-black text-[#6B7280] uppercase tracking-widest">Customer</th>
-                <th className="px-8 py-5 text-[10px] font-black text-[#6B7280] uppercase tracking-widest">Payment</th>
-                <th className="px-8 py-5 text-[10px] font-black text-[#6B7280] uppercase tracking-widest text-right">Total</th>
-                <th className="px-8 py-5 text-[10px] font-black text-[#6B7280] uppercase tracking-widest text-center">Status</th>
-                <th className="px-8 py-5 text-[10px] font-black text-[#6B7280] uppercase tracking-widest text-center">Actions</th>
+              <tr className="bg-[#FDFCFB]/50">
+                <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Order & ID</th>
+                <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Type</th>
+                <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400 text-right">Revenue</th>
+                <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400 text-center">Lifecycle</th>
+                <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400 text-center">Management</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F1E7E1]">
-              {filteredOrders.map((order) => (
-                <tr key={order.id} className={`hover:bg-[#F9F5F2]/40 transition-all group ${order.isCancelled ? 'opacity-40 grayscale' : ''}`}>
-                  <td className="px-8 py-6">
-                    <p className={`text-xs font-black text-[#D17842] uppercase ${order.isCancelled ? 'line-through' : ''}`}>{order.id}</p>
-                    <p className="text-[10px] font-bold text-gray-400 mt-0.5">
-                      {new Date(order.createdAt).toLocaleDateString('en-IN')} • {new Date(order.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                    </p>
+              {loading && orders.length === 0 ? (
+                <tr>
+                   <td colSpan={5} className="py-20 text-center text-gray-300 font-bold uppercase tracking-widest text-xs animate-pulse">Syncing orders...</td>
+                </tr>
+              ) : filteredOrders.map((o) => (
+                <tr key={o.id} className="hover:bg-[#F9F5F2]/40 transition-all group">
+                  <td className="px-10 py-8">
+                    <p className="text-sm font-black text-[#1C1C1E]">{o.table?.name || `Table ${o.tableId}`}</p>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter font-mono">{o.id.slice(-8)}</p>
                   </td>
-                  <td className={`px-8 py-6 text-sm font-bold text-[#1C1C1E] ${order.isCancelled ? 'line-through' : ''}`}>{order.customerName || 'Walk-in'}</td>
-                  <td className="px-8 py-6">
-                    <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded text-[9px] font-black uppercase tracking-tight">
-                      {order.paymentMethod}
+                  <td className="px-10 py-8">
+                    <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase ${o.orderType === OrderType.DINE_IN ? 'bg-orange-50 text-[#D17842]' : 'bg-blue-50 text-blue-600'}`}>
+                      {o.orderType}
                     </span>
                   </td>
-                  <td className={`px-8 py-6 text-right font-black text-[#1C1C1E] ${order.isCancelled ? 'line-through text-gray-400' : ''}`}>₹{order.totalAmount.toLocaleString('en-IN')}</td>
-                  <td className="px-8 py-6 text-center">
-                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${order.isCancelled ? 'bg-red-50 text-red-400' : order.status === OrderStatus.COMPLETED ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'}`}>
-                      {order.isCancelled ? 'Reverted' : order.status}
-                    </span>
-                  </td>
-                  <td className="px-8 py-6 text-center">
-                    <div className="flex items-center justify-center gap-2">
-                       <button onClick={() => setSelectedOrder(order)} className="p-2 bg-orange-50 text-[#D17842] rounded-xl hover:scale-110 transition-transform">
+                  <td className="px-10 py-8 text-right font-black text-[#1C1C1E] text-base">₹{o.totalAmount.toLocaleString()}</td>
+                  <td className="px-10 py-8 text-center">{renderStatusBadge(o.status)}</td>
+                  <td className="px-10 py-8 text-center">
+                    <div className="flex items-center justify-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                       <button onClick={() => setSelectedOrder(o)} className="p-3 bg-white border border-[#F1E7E1] rounded-2xl text-gray-400 hover:text-[#D17842] hover:border-[#D17842] transition-all">
                         <Receipt size={18} />
                       </button>
-                      {order.customerPhone && settings.whatsappEnabled && !order.isCancelled && (
-                        <button 
-                          onClick={() => shareOnWhatsApp(order, settings, order.status === OrderStatus.COMPLETED ? 'SETTLE' : 'CONFIRM')}
-                          className="p-2 bg-green-50 text-green-600 rounded-xl hover:scale-110 active:scale-90 transition-all"
-                          title="WhatsApp Share"
-                        >
-                          <MessageCircle size={18} fill="currentColor" strokeWidth={0} />
-                        </button>
-                      )}
-                      {!order.isCancelled && (
-                        <button onClick={() => setCancellingOrder(order)} className="p-2 bg-red-50 text-red-500 rounded-xl hover:scale-110 transition-transform active:scale-90" title="Revert Entry">
-                          <RotateCcw size={18} />
-                        </button>
-                      )}
+                      <button onClick={() => setAssigningOrder(o)} className="p-3 bg-white border border-[#F1E7E1] rounded-2xl text-gray-400 hover:text-blue-500 hover:border-blue-500 transition-all">
+                        <UserPlus size={18} />
+                      </button>
+                      <button onClick={() => updateOrderStatus(o.id, OrderStatus.CANCELLED)} className="p-3 bg-white border border-[#F1E7E1] rounded-2xl text-gray-400 hover:text-red-500 hover:border-red-500 transition-all">
+                        <Trash2 size={18} />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -312,3 +200,4 @@ const Orders: React.FC<OrdersProps> = ({ onNewOrder }) => {
 };
 
 export default Orders;
+

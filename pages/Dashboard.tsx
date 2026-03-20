@@ -9,7 +9,15 @@ import { shareOnWhatsApp } from '../lib/communicationUtils';
 import { useOrders } from '../hooks/useOrders';
 import { useMenu } from '../hooks/useMenu';
 import { useSettings } from '../hooks/useSettings';
+import { useTables } from '../hooks/useTables';
 import { SystemSettings } from '../types/systemSettings';
+import {
+  mapApiOrderToOrder,
+  isRevenueOrderStatus,
+  isRunningTabStatus,
+} from '../mappers/order.mapper';
+import { DASHBOARD_RECENT_SALES_SEED } from '../data/dashboardRecentSalesSeed';
+import { formatBillCode } from '../lib/formatBill';
 
 interface DashboardProps {
   onNewOrder: () => void;
@@ -24,12 +32,23 @@ const Dashboard: React.FC<DashboardProps> = ({
   onUpdateItemStatus,
   setActiveTab
 }) => {
-  const { orders: ordersData } = useOrders();
-  const orders = Array.isArray(ordersData) ? ordersData : [];
+  const { orders: apiOrders, loading: ordersLoading } = useOrders();
   const { menuItems } = useMenu();
+  const { tables } = useTables();
   const { settings, loading: settingsLoading } = useSettings();
-  const activeOrders = orders.filter(o => o.status === 'ACTIVE' && !o.isCancelled);
-  const expenses: Expense[] = []; // TODO: Integrate with API when available
+
+  const orders = useMemo(
+    () =>
+      (Array.isArray(apiOrders) ? apiOrders : []).map((o) =>
+        mapApiOrderToOrder(o, menuItems, tables)
+      ),
+    [apiOrders, menuItems, tables]
+  );
+
+  const activeOrders = orders.filter(
+    (o) => isRunningTabStatus(o.status) && !o.isCancelled
+  );
+  const expenses: Expense[] = []; // Wire to expenses API when available
 
   const filters = ['Today', 'Weekly', 'Monthly', 'Quarterly', 'Yearly'];
   const [perfFilter, setPerfFilter] = useState('Today');
@@ -79,8 +98,8 @@ const Dashboard: React.FC<DashboardProps> = ({
       new Date(o.createdAt).getTime() >= filterStartTime
     );
 
-    const completedOrders = filteredOrders.filter(
-      o => o.status === OrderStatus.COMPLETED
+    const completedOrders = filteredOrders.filter((o) =>
+      isRevenueOrderStatus(o.status)
     );
 
     const sales = completedOrders.reduce(
@@ -112,8 +131,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         .filter(o => o.paymentMethod !== PaymentMethod.CASH)
         .reduce((sum, o) => sum + o.totalAmount, 0);
 
-    const cashSplit =
-      settings?.expenseCashSplit ?? 0.3;
+    const cashSplit = settings?.expenseCashSplit ?? 0.3;
 
     const bankSplit =
       1 - cashSplit;
@@ -142,17 +160,15 @@ const Dashboard: React.FC<DashboardProps> = ({
     };
   }, [orders, expenses, filterStartTime, settings]);
 
-  // Safe currency formatter
-  const currency = settings?.currencySymbol || "₹";
-
   const formatCurrency = (amount?: number | null) =>
-    `${currency}${(amount || 0).toLocaleString("en-IN")}`;
+    formatBillCode(settings, amount ?? 0);
 
   const itemRankings = useMemo(() => {
-    const periodOrders = orders.filter(o =>
-      !o.isCancelled &&
-      new Date(o.createdAt).getTime() >= filterStartTime &&
-      o.status === OrderStatus.COMPLETED
+    const periodOrders = orders.filter(
+      (o) =>
+        !o.isCancelled &&
+        new Date(o.createdAt).getTime() >= filterStartTime &&
+        isRevenueOrderStatus(o.status)
     );
 
     const counts: Record<string, { id: string, name: string, quantity: number, category: string }> = {};
@@ -181,19 +197,26 @@ const Dashboard: React.FC<DashboardProps> = ({
   }, [orders, menuItems, filterStartTime]);
 
   const recentSales = useMemo(() => {
-    return orders
+    const fromApi = orders
       .map(normalizeOrder)
-      .filter(o => !o.isCancelled)
+      .filter((o) => !o.isCancelled);
+    const merged = [...fromApi, ...DASHBOARD_RECENT_SALES_SEED];
+    const byId = new Map<string, Order>();
+    merged.forEach((o) => {
+      if (!byId.has(o.id)) byId.set(o.id, o);
+    });
+    return Array.from(byId.values())
       .sort(
         (a, b) =>
-          new Date(b.createdAt).getTime() -
-          new Date(a.createdAt).getTime()
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       )
       .slice(0, 8);
   }, [orders]);
 
-  // Show loading state while settings are being fetched
-  if (settingsLoading || !settings) {
+  // Full-screen splash only for initial settings load or first orders fetch (not on refresh when we already have rows)
+  const ordersInitialLoad =
+    ordersLoading && (!apiOrders || apiOrders.length === 0);
+  if (settingsLoading || !settings || ordersInitialLoad) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -245,7 +268,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
 
             <p className="text-[10px] text-gray-400 font-medium italic">
-              Note: Expenses are proportionally distributed ({(settings.expenseCashSplit * 100).toFixed(0)}% Cash, {((1 - settings.expenseCashSplit) * 100).toFixed(0)}% Bank) across accounts for liquidity modeling.
+              Note: Expenses are proportionally distributed ({((settings.expenseCashSplit ?? 0.3) * 100).toFixed(0)}% Cash, {((1 - (settings.expenseCashSplit ?? 0.3)) * 100).toFixed(0)}% Bank) across accounts for liquidity modeling.
             </p>
 
             <div className="pt-4 border-t border-dashed border-[#F1E7E1] flex justify-between items-center">
@@ -291,7 +314,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                         <p className="text-sm font-bold text-[#1C1C1E]">{item.quantity}x {item.name}</p>
                         {item.variantName && <span className="text-[9px] font-black uppercase text-orange-500 bg-orange-50 px-1.5 rounded">{item.variantName}</span>}
                       </div>
-                      <p className="text-sm font-black">₹ {(item.price * item.quantity).toLocaleString('en-IN')}</p>
+                      <p className="text-sm font-black">{formatCurrency(item.price * item.quantity)}</p>
                     </div>
                   ))}
                 </div>
@@ -300,15 +323,15 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-gray-400 font-bold text-[11px] uppercase tracking-widest">
                   <span>Subtotal</span>
-                  <span>₹ {(selectedReceiptOrder.totalAmount - selectedReceiptOrder.gstAmount).toLocaleString('en-IN')}</span>
+                  <span>{formatCurrency(selectedReceiptOrder.totalAmount - selectedReceiptOrder.gstAmount)}</span>
                 </div>
                 <div className="flex justify-between items-center text-gray-400 font-bold text-[11px] uppercase tracking-widest">
                   <span>Tax (GST {selectedReceiptOrder.gstPercentage}%)</span>
-                  <span>₹ {selectedReceiptOrder.gstAmount.toLocaleString('en-IN')}</span>
+                  <span>{formatCurrency(selectedReceiptOrder.gstAmount)}</span>
                 </div>
                 <div className="flex justify-between items-center pt-6 border-t-2 border-[#1C1C1E]">
                   <span className="text-sm font-black uppercase tracking-widest">Grand Total</span>
-                  <span className="text-3xl font-black text-[#D17842]">₹ {selectedReceiptOrder.totalAmount.toLocaleString('en-IN')}</span>
+                  <span className="text-3xl font-black text-[#D17842]">{formatCurrency(selectedReceiptOrder.totalAmount)}</span>
                 </div>
                 <div className="flex items-center justify-center gap-2 pt-4">
                   <span className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Paid via {selectedReceiptOrder.paymentMethod}</span>
@@ -435,9 +458,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                       }</p>
                       <p className="text-[10px] text-[#8E8E93] font-medium uppercase tracking-tighter">{order.orderType}</p>
                     </td>
-                    <td className={`px-6 py-5 font-black text-[#1C1C1E] text-sm ${order.isCancelled ? 'line-through opacity-50' : ''}`}>{settings.currencySymbol} {order.totalAmount.toLocaleString('en-IN')}</td>
+                    <td className={`px-6 py-5 font-black text-[#1C1C1E] text-sm ${order.isCancelled ? 'line-through opacity-50' : ''}`}>{formatCurrency(order.totalAmount)}</td>
                     <td className="px-6 py-5 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${order.isCancelled ? 'bg-red-50 text-red-400' : order.status === OrderStatus.COMPLETED ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'}`}>
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${order.isCancelled ? 'bg-red-50 text-red-400' : isRevenueOrderStatus(order.status) ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'}`}>
                         {order.isCancelled ? 'Reverted' : order.status}
                       </span>
                     </td>
@@ -453,7 +476,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                               <Phone size={16} />
                             </a>
                             <button
-                              onClick={() => shareOnWhatsApp(order, settings, order.status === OrderStatus.COMPLETED ? 'SETTLE' : 'CONFIRM')}
+                              onClick={() => shareOnWhatsApp(order, settings, isRevenueOrderStatus(order.status) ? 'SETTLE' : 'CONFIRM')}
                               className="p-2 bg-green-50 text-green-600 rounded-xl hover:scale-110 active:scale-95 transition-all shadow-sm"
                               title="WhatsApp Alert"
                             >

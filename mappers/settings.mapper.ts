@@ -45,7 +45,7 @@ export function mapSettingsToSystemSettings(
     totalTables:
       apiSettings.totalTables ?? 0,
     tables:
-      apiSettings.tables || [],
+      (apiSettings as any).tables || [],
     logoUrl:
       apiSettings.logoUrl,
     upiId:
@@ -56,8 +56,44 @@ export function mapSettingsToSystemSettings(
       apiSettings.whatsappConfirmationTemplate,
     whatsappSettledTemplate:
       apiSettings.whatsappSettledTemplate,
-    expenseCashSplit:
-      apiSettings.expenseCashSplit ?? 0.3,
+    contactEmail:
+      apiSettings.contactEmail || "",
+    geoLatitude:
+      apiSettings.geoLatitude || 0,
+    geoLongitude:
+      apiSettings.geoLongitude || 0,
+    enableChefAutoAssign:
+      apiSettings.enableChefAutoAssign ?? false,
+    enableAutoAcceptOrders:
+      apiSettings.enableAutoAcceptOrders ?? false,
+    maintenanceMode:
+      apiSettings.maintenanceMode ?? false,
   };
 
+}
+
+export function reverseMapSystemSettingsToSettings(
+  systemSettings: SystemSettings
+): Partial<Settings> {
+  return {
+    restaurantName: systemSettings.restaurantName,
+    physicalAddress: systemSettings.address,
+    contactPhone: systemSettings.phone,
+    contactEmail: systemSettings.contactEmail,
+    themeColor: systemSettings.primaryColor,
+    currency: systemSettings.currency,
+    enableWhatsappNotifications: systemSettings.whatsappEnabled,
+    gstPercentage: systemSettings.gstPercentage,
+    totalTables: systemSettings.totalTables,
+    logoUrl: systemSettings.logoUrl,
+    upiId: systemSettings.upiId,
+    gstNumber: systemSettings.gstNumber,
+    whatsappConfirmationTemplate: systemSettings.whatsappConfirmationTemplate,
+    whatsappSettledTemplate: systemSettings.whatsappSettledTemplate,
+    geoLatitude: systemSettings.geoLatitude,
+    geoLongitude: systemSettings.geoLongitude,
+    enableChefAutoAssign: systemSettings.enableChefAutoAssign,
+    enableAutoAcceptOrders: systemSettings.enableAutoAcceptOrders,
+    maintenanceMode: systemSettings.maintenanceMode,
+  };
 }

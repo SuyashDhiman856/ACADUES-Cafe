@@ -11,7 +11,7 @@ import { SystemSettings, StaffMember, UserRole } from '../types';
 import { useSettings } from '../hooks/useSettings';
 import { useStaff } from '../hooks/useStaff';
 
-type ControlTab = 'general' | 'branding' | 'halls' | 'financials' | 'communication' | 'staff';
+type ControlTab = 'general' | 'branding' | 'halls' | 'financials' | 'communication' | 'operational' | 'staff';
 
 interface ControlCenterProps {
   tenantId: string;
@@ -114,6 +114,7 @@ const ControlCenter: React.FC<ControlCenterProps> = ({ tenantId, onLogout }) => 
     { id: 'halls', label: 'Tables / Venues', icon: MapPin },
     { id: 'financials', label: 'Financials', icon: ReceiptIndianRupee },
     { id: 'communication', label: 'Comm.', icon: MessageCircle },
+    { id: 'operational', label: 'Operational', icon: ShieldCheck },
     { id: 'staff', label: 'Team', icon: Users },
   ];
 
@@ -207,6 +208,13 @@ const ControlCenter: React.FC<ControlCenterProps> = ({ tenantId, onLogout }) => 
                   <input type="tel" value={localSettings.phone} onChange={(e) => updateLocal('phone', e.target.value)} className="w-full pl-14 pr-5 py-4 rounded-2xl bg-[#F9F5F2] border-none focus:ring-2 focus:ring-[#D17842] font-bold text-sm text-[#1C1C1E]" />
                 </div>
               </div>
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#8E8E93] px-2">Contact Email</label>
+                <div className="relative">
+                  <Mail size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input type="email" value={localSettings.contactEmail} onChange={(e) => updateLocal('contactEmail', e.target.value)} className="w-full pl-14 pr-5 py-4 rounded-2xl bg-[#F9F5F2] border-none focus:ring-2 focus:ring-[#D17842] font-bold text-sm text-[#1C1C1E]" />
+                </div>
+              </div>
               <div className="md:col-span-2 space-y-3">
                 <label className="text-[10px] font-black uppercase tracking-widest text-[#8E8E93] px-2">Physical Address</label>
                 <div className="relative">
@@ -221,6 +229,21 @@ const ControlCenter: React.FC<ControlCenterProps> = ({ tenantId, onLogout }) => 
                     {isLocating ? <RefreshCw size={14} className="animate-spin" /> : <MapPin size={14} />}
                     <span className="text-[9px] font-black uppercase tracking-widest">{isLocating ? 'Locating...' : 'Fetch Location'}</span>
                   </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#8E8E93] px-2">Geo Latitude</label>
+                <div className="relative">
+                  <Globe size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input type="number" step="any" value={localSettings.geoLatitude} onChange={(e) => updateLocal('geoLatitude', Number(e.target.value))} className="w-full pl-14 pr-5 py-4 rounded-2xl bg-[#F9F5F2] border-none focus:ring-2 focus:ring-[#D17842] font-bold text-sm text-[#1C1C1E]" />
+                </div>
+              </div>
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#8E8E93] px-2">Geo Longitude</label>
+                <div className="relative">
+                  <Globe size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input type="number" step="any" value={localSettings.geoLongitude} onChange={(e) => updateLocal('geoLongitude', Number(e.target.value))} className="w-full pl-14 pr-5 py-4 rounded-2xl bg-[#F9F5F2] border-none focus:ring-2 focus:ring-[#D17842] font-bold text-sm text-[#1C1C1E]" />
                 </div>
               </div>
             </div>
@@ -307,6 +330,13 @@ const ControlCenter: React.FC<ControlCenterProps> = ({ tenantId, onLogout }) => 
                        <button onClick={() => removeTable(table)} className="absolute -top-2 -right-2 bg-white text-red-500 p-1.5 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={12} /></button>
                     </div>
                   ))}
+               </div>
+               <div className="pt-6 border-t border-[#F1E7E1]">
+                 <label className="text-[10px] font-black uppercase tracking-widest text-[#8E8E93] px-2">Total Tables Capacity</label>
+                 <div className="relative mt-2">
+                    <Hash size={18} className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input type="number" value={localSettings.totalTables} onChange={(e) => updateLocal('totalTables', Number(e.target.value))} className="w-full pl-14 pr-5 py-4 rounded-2xl bg-[#F9F5F2] border-none focus:ring-2 focus:ring-[#D17842] font-bold text-sm text-[#1C1C1E]" />
+                 </div>
                </div>
             </div>
           </div>
@@ -400,6 +430,61 @@ const ControlCenter: React.FC<ControlCenterProps> = ({ tenantId, onLogout }) => 
                  </div>
                </div>
             </div>
+          </div>
+        );
+
+      case 'operational':
+        return (
+          <div className="space-y-8 animate-in fade-in duration-500">
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="p-6 bg-[#F9F5F2] rounded-[32px] border border-[#F1E7E1] flex items-center justify-between">
+                   <div className="flex items-center gap-4">
+                      <div className="p-3 bg-white rounded-2xl text-[#D17842] shadow-sm"><Users size={20} /></div>
+                      <div>
+                        <h4 className="text-xs font-black uppercase tracking-widest text-[#1C1C1E]">Chef Auto-Assign</h4>
+                        <p className="text-[9px] text-gray-500 font-bold uppercase">Distribute orders to chefs</p>
+                      </div>
+                   </div>
+                   <button 
+                    onClick={() => updateLocal('enableChefAutoAssign', !localSettings.enableChefAutoAssign)}
+                    className={`w-12 h-7 rounded-full relative transition-all ${localSettings.enableChefAutoAssign ? 'bg-[#D17842]' : 'bg-gray-300'}`}
+                   >
+                     <div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-md transition-all ${localSettings.enableChefAutoAssign ? 'left-6' : 'left-1'}`} />
+                   </button>
+                </div>
+
+                <div className="p-6 bg-[#F9F5F2] rounded-[32px] border border-[#F1E7E1] flex items-center justify-between">
+                   <div className="flex items-center gap-4">
+                      <div className="p-3 bg-white rounded-2xl text-[#D17842] shadow-sm"><CheckCircle2 size={20} /></div>
+                      <div>
+                        <h4 className="text-xs font-black uppercase tracking-widest text-[#1C1C1E]">Auto Accept Orders</h4>
+                        <p className="text-[9px] text-gray-500 font-bold uppercase">Skip manual review</p>
+                      </div>
+                   </div>
+                   <button 
+                    onClick={() => updateLocal('enableAutoAcceptOrders', !localSettings.enableAutoAcceptOrders)}
+                    className={`w-12 h-7 rounded-full relative transition-all ${localSettings.enableAutoAcceptOrders ? 'bg-[#D17842]' : 'bg-gray-300'}`}
+                   >
+                     <div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-md transition-all ${localSettings.enableAutoAcceptOrders ? 'left-6' : 'left-1'}`} />
+                   </button>
+                </div>
+
+                <div className="p-6 bg-red-50 rounded-[32px] border border-red-100 flex items-center justify-between md:col-span-2">
+                   <div className="flex items-center gap-4">
+                      <div className="p-3 bg-white rounded-2xl text-red-500 shadow-sm"><ShieldCheck size={20} /></div>
+                      <div>
+                        <h4 className="text-xs font-black uppercase tracking-widest text-red-800">Maintenance Mode</h4>
+                        <p className="text-[9px] text-red-400 font-bold uppercase">Disable customer facing apps</p>
+                      </div>
+                   </div>
+                   <button 
+                    onClick={() => updateLocal('maintenanceMode', !localSettings.maintenanceMode)}
+                    className={`w-14 h-8 rounded-full relative transition-all ${localSettings.maintenanceMode ? 'bg-red-500' : 'bg-gray-300'}`}
+                   >
+                     <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-md transition-all ${localSettings.maintenanceMode ? 'left-7' : 'left-1'}`} />
+                   </button>
+                </div>
+             </div>
           </div>
         );
 

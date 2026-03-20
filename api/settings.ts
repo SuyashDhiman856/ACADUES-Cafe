@@ -6,6 +6,8 @@ export interface Settings {
   contactPhone: string;
   contactEmail?: string;
   physicalAddress: string;
+  geoLatitude?: number;
+  geoLongitude?: number;
   logoUrl?: string;
   themeColor: string;
   currency: string;
@@ -13,30 +15,29 @@ export interface Settings {
   gstNumber?: string;
   gstPercentage: number;
   totalTables: number;
-  tables?: string[];
+  
+  // Operational features
   enableWhatsappNotifications: boolean;
+  enableChefAutoAssign: boolean;
+  enableAutoAcceptOrders: boolean;
+  maintenanceMode: boolean;
+  
+  // Messaging templates (Optional)
   whatsappConfirmationTemplate?: string;
   whatsappSettledTemplate?: string;
-  expenseCashSplit?: number;
+  
   createdAt: string;
   updatedAt: string;
 }
 
 export const settingsAPI = {
   get: async (): Promise<Settings> => {
-    const response =
-      await apiClient.get<Settings>("/settings");
+    const response = await apiClient.get<Settings>("/settings");
     return response.data;
   },
 
-  update: async (
-    data: Partial<Settings>
-  ): Promise<Settings> => {
-    const response =
-      await apiClient.patch<Settings>(
-        "/settings",
-        data
-      );
+  update: async (data: Partial<Settings>): Promise<Settings> => {
+    const response = await apiClient.patch<Settings>("/settings", data);
     return response.data;
   },
 };

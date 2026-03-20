@@ -1,7 +1,9 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 
-// Base API configuration
-const BASE_URL = 'http://localhost:3000/api';
+// Base API configuration (override in .env with VITE_API_BASE_URL=http://host:port/api)
+const BASE_URL =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
+  'http://localhost:3000/api';
 
 // Create axios instance
 const apiClient: AxiosInstance = axios.create({

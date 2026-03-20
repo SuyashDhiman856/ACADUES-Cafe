@@ -14,7 +14,7 @@ const MenuManager: React.FC<MenuManagerProps> = ({ tenantId }) => {
   const { categories: apiCategories, loading: categoriesLoading, createCategory, deleteCategory } = useCategories();
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
-  const [dietaryFilter, setDietaryFilter] = useState<'Both' | 'Veg' | 'Non-Veg' | 'Egg'>('Both');
+  const [dietaryFilter, setDietaryFilter] = useState<'All' | 'VEG' | 'NON_VEG'>('All');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -35,16 +35,15 @@ const MenuManager: React.FC<MenuManagerProps> = ({ tenantId }) => {
   }, [apiCategories]);
 
   const [hasVariants, setHasVariants] = useState(false);
-  const [variants, setVariants] = useState<MenuVariant[]>([{ size: 'Regular', price: 0, cost: 0 }]);
+  const [variants, setVariants] = useState<MenuVariant[]>([{ name: 'Regular', price: 0 }]);
 
   const [newItem, setNewItem] = useState({
     name: '',
+    description: '',
     category: apiCategories[0]?.name || '',
     newCategory: '',
     price: '',
-    cost: '',
-    stock: '',
-    dietary: 'Veg' as 'Veg' | 'Non-Veg' | 'Egg',
+    dietary: 'VEG' as 'VEG' | 'NON_VEG',
     imagePreview: '',
     isAvailable: true
   });
@@ -88,7 +87,7 @@ const MenuManager: React.FC<MenuManagerProps> = ({ tenantId }) => {
   };
 
   const addVariantRow = () => {
-    setVariants([...variants, { size: '', price: 0, cost: 0 }]);
+    setVariants([...variants, { name: '', price: 0 }]);
   };
 
   const removeVariantRow = (index: number) => {
@@ -113,45 +112,45 @@ const MenuManager: React.FC<MenuManagerProps> = ({ tenantId }) => {
         await createCategory({ name: finalCategory });
       }
 
-      // Find category ID
       const category = (apiCategories || []).find(c => c.name === finalCategory);
       if (!category) {
         throw new Error('Category not found');
       }
 
-      const formData = new FormData();
-      formData.append('name', newItem.name);
-      formData.append('description', ''); // Add description field if needed
-      formData.append('categoryId', category.id);
-      formData.append('foodType', newItem.dietary === 'Veg' ? 'VEG' : newItem.dietary === 'Egg' ? 'EGG' : 'NON_VEG');
-      formData.append('hasSizes', hasVariants.toString());
-      formData.append('price', newItem.price);
-
-      if (hasVariants) {
-        formData.append('sizes', JSON.stringify(variants.map(v => ({ name: v.size, price: v.price }))));
-      }
-
-      // Add image if exists
-      if (newItem.imagePreview && newItem.imagePreview.startsWith('data:image')) {
-        // Convert data URL to blob
-        const res = await fetch(newItem.imagePreview);
-        const blob = await res.blob();
-        formData.append('image', blob, 'item.jpg');
-      }
-
       if (editingItem) {
-        // Backend doesn't support FormData for update currently based on service code, 
-        // but we'll use updateMenuItem partial update
-        await updateMenuItem(editingItem.id, {
+        // For update, content-type is application/json
+        const updateData: Partial<MenuItem> = {
           name: newItem.name,
-          category: category.id as any,
+          description: newItem.description,
+          category: category.name,
           dietary: newItem.dietary,
           hasVariants: hasVariants,
-          price: Number(newItem.price),
-          variants: hasVariants ? variants.map(v => ({ size: v.size, price: v.price, cost: v.cost })) : undefined,
+          price: hasVariants ? 0 : Number(newItem.price),
+          variants: hasVariants ? variants : undefined,
           isAvailable: newItem.isAvailable
-        });
+        };
+        await updateMenuItem(editingItem.id, updateData);
       } else {
+        // For create, content-type is multipart/form-data
+        const formData = new FormData();
+        formData.append('name', newItem.name);
+        formData.append('description', newItem.description);
+        formData.append('categoryId', category.id);
+        formData.append('foodType', newItem.dietary);
+        formData.append('hasSizes', hasVariants.toString());
+        if (!hasVariants) {
+          formData.append('price', newItem.price);
+        } else {
+          formData.append('sizes', JSON.stringify(variants.map(v => ({ name: v.name, price: v.price }))));
+        }
+
+        // Add image if exists
+        if (newItem.imagePreview && newItem.imagePreview.startsWith('data:image')) {
+          const res = await fetch(newItem.imagePreview);
+          const blob = await res.blob();
+          formData.append('image', blob, 'item.jpg');
+        }
+
         await createMenuItem(formData);
       }
 
@@ -163,8 +162,8 @@ const MenuManager: React.FC<MenuManagerProps> = ({ tenantId }) => {
         setEditingItem(null);
         setIsCreatingNewCategory(false);
         setHasVariants(false);
-        setVariants([{ size: 'Regular', price: 0, cost: 0 }]);
-        setNewItem({ name: '', category: apiCategories[0]?.name || '', newCategory: '', price: '', cost: '', stock: '', dietary: 'Veg', imagePreview: '', isAvailable: true });
+        setVariants([{ name: 'Regular', price: 0 }]);
+        setNewItem({ name: '', description: '', category: apiCategories[0]?.name || '', newCategory: '', price: '', dietary: 'VEG', imagePreview: '', isAvailable: true });
       }, 1500);
     } catch (error) {
       console.error('Error saving menu item:', error);
@@ -178,20 +177,19 @@ const MenuManager: React.FC<MenuManagerProps> = ({ tenantId }) => {
     setEditingItem(item);
     setNewItem({
       name: item.name,
-      category: category?.name || '',
+      description: item.description || '',
+      category: category?.name || item.category,
       newCategory: '',
       price: item.price.toString(),
-      cost: '',
-      stock: '',
       dietary: item.dietary,
       imagePreview: item.image || '',
       isAvailable: item.isAvailable || true
     });
     setHasVariants(item.hasVariants);
     if (item.hasVariants && item.variants) {
-      setVariants(item.variants.map(s => ({ size: s.size, price: s.price, cost: 0 })));
+      setVariants(item.variants.map(s => ({ name: s.name, price: s.price })));
     } else {
-      setVariants([{ size: 'Regular', price: item.price, cost: 0 }]);
+      setVariants([{ name: 'Regular', price: item.price }]);
     }
     setIsAddModalOpen(true);
   };
@@ -229,7 +227,7 @@ const MenuManager: React.FC<MenuManagerProps> = ({ tenantId }) => {
   const filteredItems = (apiMenuItems || []).filter(item => {
     const matchesCategory = activeCategory === 'All' || item.category === activeCategory;
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesDietary = dietaryFilter === 'Both' || item.dietary === dietaryFilter;
+    const matchesDietary = dietaryFilter === 'All' || item.dietary === dietaryFilter;
     return matchesCategory && matchesSearch && matchesDietary;
   });
 
@@ -273,12 +271,10 @@ const MenuManager: React.FC<MenuManagerProps> = ({ tenantId }) => {
                     <button 
                       type="button" 
                       onClick={() => {
-                        const states: ('Veg' | 'Non-Veg' | 'Egg')[] = ['Veg', 'Non-Veg', 'Egg'];
-                        const next = states[(states.indexOf(newItem.dietary) + 1) % states.length];
-                        setNewItem({...newItem, dietary: next});
+                        setNewItem({...newItem, dietary: newItem.dietary === 'VEG' ? 'NON_VEG' : 'VEG'});
                       }}
                       className={`w-full py-4 rounded-2xl transition-all flex items-center justify-center border-2 shadow-sm active:scale-90 ${
-                        newItem.dietary === 'Veg' ? 'bg-green-50 border-green-200' : newItem.dietary === 'Egg' ? 'bg-orange-50 border-orange-200' : 'bg-red-50 border-red-200'
+                        newItem.dietary === 'VEG' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
                       }`}
                     >
                       <DietaryIndicator dietary={newItem.dietary} size="md" className="shadow-sm" />
@@ -291,6 +287,7 @@ const MenuManager: React.FC<MenuManagerProps> = ({ tenantId }) => {
                     <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-2">Basic Info</label>
                     <div className="space-y-2 mt-2">
                       <input required type="text" placeholder="Dish Name" className="w-full px-5 py-3.5 rounded-2xl bg-[#F9F5F2] font-bold" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
+                      <textarea placeholder="Description" className="w-full px-5 py-3.5 rounded-2xl bg-[#F9F5F2] font-semibold text-sm" value={newItem.description} onChange={e => setNewItem({...newItem, description: e.target.value})} rows={2} />
                       
                       {isCreatingNewCategory ? (
                         <input required type="text" placeholder="New Category" className="w-full px-5 py-3.5 rounded-2xl bg-orange-50 font-bold" value={newItem.newCategory} onChange={e => setNewItem({...newItem, newCategory: e.target.value})} />
@@ -334,10 +331,7 @@ const MenuManager: React.FC<MenuManagerProps> = ({ tenantId }) => {
                   {!hasVariants ? (
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-2">Pricing</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <input required type="number" placeholder="Price" className="w-full px-5 py-3.5 rounded-2xl bg-[#F9F5F2] font-bold" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} />
-                        <input type="number" placeholder="Cost (Optional)" className="w-full px-5 py-3.5 rounded-2xl bg-[#F9F5F2] font-bold" value={newItem.cost} onChange={e => setNewItem({...newItem, cost: e.target.value})} />
-                      </div>
+                      <input required type="number" placeholder="Price" className="w-full px-5 py-3.5 rounded-2xl bg-[#F9F5F2] font-bold" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} />
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -345,18 +339,16 @@ const MenuManager: React.FC<MenuManagerProps> = ({ tenantId }) => {
                       <div className="space-y-2">
                         {variants.map((v, idx) => (
                           <div key={idx} className="grid grid-cols-12 gap-1 items-center bg-[#F9F5F2] p-2 rounded-2xl">
-                            <input required placeholder="Size" className="col-span-4 bg-white px-2 py-2 rounded-xl text-xs font-bold" value={v.size} onChange={e => updateVariant(idx, 'size', e.target.value)} />
-                            <input required type="number" placeholder="Price" className="col-span-3 bg-white px-2 py-2 rounded-xl text-xs font-bold" value={v.price === 0 ? '' : v.price} onChange={e => updateVariant(idx, 'price', Number(e.target.value))} />
-                            <input type="number" placeholder="Cost" className="col-span-3 bg-white px-2 py-2 rounded-xl text-xs font-bold" value={v.cost === 0 ? '' : v.cost} onChange={e => updateVariant(idx, 'cost', Number(e.target.value))} />
+                            <input required placeholder="Size Name" className="col-span-6 bg-white px-3 py-2 rounded-xl text-xs font-bold" value={v.name} onChange={e => updateVariant(idx, 'name', e.target.value)} />
+                            <input required type="number" placeholder="Price" className="col-span-4 bg-white px-3 py-2 rounded-xl text-xs font-bold" value={v.price === 0 ? '' : v.price} onChange={e => updateVariant(idx, 'price', Number(e.target.value))} />
                             <button type="button" onClick={() => removeVariantRow(idx)} className="col-span-2 flex justify-center text-red-400"><X size={16} /></button>
                           </div>
                         ))}
+
                         <button type="button" onClick={addVariantRow} className="w-full py-2 border-2 border-dashed border-[#F1E7E1] rounded-2xl text-[10px] font-black uppercase text-gray-400 hover:text-[#D17842] hover:border-[#D17842] transition-all">+ Add Size</button>
                       </div>
                     </div>
                   )}
-
-                  <input type="number" placeholder="Stock Level (Optional)" className="w-full px-5 py-3.5 rounded-2xl bg-[#F9F5F2] font-bold" value={newItem.stock} onChange={e => setNewItem({...newItem, stock: e.target.value})} />
                 </div>
               </div>
 
@@ -390,21 +382,20 @@ const MenuManager: React.FC<MenuManagerProps> = ({ tenantId }) => {
 
           <button 
             onClick={() => {
-              const states: ('Both' | 'Veg' | 'Non-Veg' | 'Egg')[] = ['Both', 'Veg', 'Non-Veg', 'Egg'];
+              const states: ('All' | 'VEG' | 'NON_VEG')[] = ['All', 'VEG', 'NON_VEG'];
               const next = states[(states.indexOf(dietaryFilter) + 1) % states.length];
               setDietaryFilter(next);
             }}
             className={`flex items-center justify-center w-12 h-12 rounded-2xl transition-all shadow-sm active:scale-90 border-2 shrink-0 ${
-              dietaryFilter === 'Both' ? 'bg-white border-[#F1E7E1]' :
-              dietaryFilter === 'Veg' ? 'bg-green-50 border-green-200' :
-              dietaryFilter === 'Egg' ? 'bg-orange-50 border-orange-200' :
+              dietaryFilter === 'All' ? 'bg-white border-[#F1E7E1]' :
+              dietaryFilter === 'VEG' ? 'bg-green-50 border-green-200' :
               'bg-red-50 border-red-200'
             }`}
           >
             <DietaryIndicator 
-              dietary={dietaryFilter === 'Both' ? 'All' : dietaryFilter} 
+              dietary={dietaryFilter} 
               size="md" 
-              className={dietaryFilter === 'Both' ? '' : 'shadow-sm'} 
+              className={dietaryFilter === 'All' ? '' : 'shadow-sm'} 
             />
           </button>
         </div>

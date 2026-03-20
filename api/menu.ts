@@ -1,7 +1,7 @@
 import apiClient from './client';
 
 export interface MenuSize {
-  id?: string;
+  id: string;
   name: string;
   price: number;
 }
@@ -15,7 +15,7 @@ export interface MenuItem {
     id: string;
     name: string;
   };
-  foodType: 'VEG' | 'NON_VEG' | 'EGG';
+  foodType: 'VEG' | 'NON_VEG';
   hasSizes: boolean;
   price: number;
   imageUrl?: string;
@@ -29,6 +29,7 @@ interface ApiResponse<T> {
   data: T;
   message?: string;
 }
+
 
 export const menuAPI = {
   getAll: async (): Promise<MenuItem[]> => {

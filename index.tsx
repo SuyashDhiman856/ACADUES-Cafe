@@ -2,6 +2,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { OrdersProvider } from './hooks/useOrders';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -22,6 +23,8 @@ if ('serviceWorker' in navigator) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <OrdersProvider>
+      <App />
+    </OrdersProvider>
   </React.StrictMode>
 );

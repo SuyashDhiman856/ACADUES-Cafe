@@ -9,11 +9,20 @@ export interface SystemSettings {
   whatsappEnabled: boolean;
   gstPercentage: number;
   totalTables: number;
-  expenseCashSplit: number;
   upiId?: string;
   whatsappConfirmationTemplate?: string;
   whatsappSettledTemplate?: string;
   tables: string[];
   logoUrl?: string;
   gstNumber?: string;
+  
+  // NEW FIELDS
+  contactEmail?: string;
+  geoLatitude?: number;
+  geoLongitude?: number;
+  enableChefAutoAssign: boolean;
+  enableAutoAcceptOrders: boolean;
+  maintenanceMode: boolean;
+  /** Optional: cash share of expenses for dashboard liquidity model (0–1). */
+  expenseCashSplit?: number;
 }

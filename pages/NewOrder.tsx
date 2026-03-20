@@ -1,9 +1,17 @@
 
 import React, { useState, useRef, useMemo } from 'react';
-import { Search, Plus, Minus, User, Hash, Banknote, Smartphone, CheckCircle2, RefreshCw, Phone, LogOut, Coffee, ArrowRight, ArrowLeft, X, Truck, MapPin, Link as LinkIcon, Layers, Clock, MessageCircle, Sparkles, Megaphone, Gift, Star } from 'lucide-react';
-import { OrderStatus, PaymentMethod, OrderType, Order, ItemStatus, MenuItem, SystemSettings, MenuVariant, Offer } from '../types';
+import { Search, Plus, Minus, User, Hash, Banknote, Smartphone, CheckCircle2, RefreshCw, Phone, LogOut, Coffee, ArrowRight, ArrowLeft, X, Link as LinkIcon, Layers, Clock, MessageCircle, Sparkles, Megaphone, Gift, Star } from 'lucide-react';
+import { OrderStatus, PaymentMethod, OrderType, Order, ItemStatus, MenuItem, SystemSettings, MenuVariant, Offer, CreateOrderDto } from '../types';
 import DietaryIndicator from '../components/DietaryIndicator';
 import { shareOnWhatsApp } from '../lib/communicationUtils';
+import { useOrders } from '../hooks/useOrders';
+import { useTables } from '../hooks/useTables';
+import { resolveTableIdForOrderPlacement } from '../api/tables';
+import { formatBillCode } from '../lib/formatBill';
+import {
+  mapApiOrderToOrder,
+  mergeDisplayedCheckoutOrder,
+} from '../mappers/order.mapper';
 
 interface NewOrderProps {
   tenantId: string;
@@ -17,10 +25,11 @@ interface NewOrderProps {
 }
 
 const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep = 1, menuItems, offers, settings, onCancel, onSave }) => {
+  const money = (n: number) => formatBillCode(settings, n);
   const [step, setStep] = useState<1 | 2>(initialStep);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
-  const [dietaryFilter, setDietaryFilter] = useState<'Both' | 'Veg' | 'Non-Veg'>('Both');
+  const [dietaryFilter, setDietaryFilter] = useState<'All' | 'VEG' | 'NON_VEG'>('All');
   
   const [cart, setCart] = useState<{ id: string; name: string; price: number; quantity: number; deliveredQuantity?: number; status?: ItemStatus; variantName?: string; image?: string }[]>(
     initialOrder?.items.map(item => {
@@ -94,16 +103,16 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
   const filteredItems = menuItems.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = activeCategory === 'All' || item.category === activeCategory;
-    const matchesDietary = dietaryFilter === 'Both' || item.dietary === dietaryFilter;
+    const matchesDietary = dietaryFilter === 'All' || item.dietary === dietaryFilter;
     return matchesSearch && matchesCategory && matchesDietary;
   });
 
   const addToCart = (item: MenuItem, variant?: MenuVariant) => {
     if (!item.isAvailable) return;
-    const baseId = variant ? `${item.id}-${variant.size}` : item.id;
+    const baseId = variant ? `${item.id}-${variant.id}` : item.id;
     const finalName = item.name;
     const finalPrice = variant ? variant.price : item.price;
-    const variantName = variant ? variant.size : undefined;
+    const variantName = variant ? variant.name : undefined;
 
     setCart(prev => {
       // Find an existing item with same base ID AND status is PENDING or PREPARING
@@ -131,7 +140,7 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
   };
 
   const removeFromCart = (item: MenuItem, variant?: MenuVariant) => {
-    const baseId = variant ? `${item.id}-${variant.size}` : item.id;
+    const baseId = variant ? `${item.id}-${variant.name}` : item.id;
     setCart(prev => {
       // Find the latest added item of this type that is still PENDING or PREPARING
       const existingIndex = [...prev].reverse().findIndex(i => i.id.startsWith(baseId) && (i.status === ItemStatus.PENDING || i.status === ItemStatus.PREPARING));
@@ -228,48 +237,78 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
   const gstAmount = isGstEnabled ? taxableAmount * (gstPercentage / 100) : 0;
   const finalTotal = taxableAmount + gstAmount;
 
-  const handleProcessOrder = (mode: 'KOT' | 'SETTLE') => {
+  const { createOrder } = useOrders();
+  const { tables } = useTables();
+
+  const handleProcessOrder = async (mode: 'KOT' | 'SETTLE') => {
     if (cart.length === 0) return;
+    
+    // Find matching tableId for DINE_IN
+    const targetTable = tables.find(t => t.tableNumber.toString() === tableNumber);
+    if (orderType === OrderType.DINE_IN && !targetTable) {
+      alert("Invalid Table Number. Please choose a valid table.");
+      return;
+    }
+    const placement = resolveTableIdForOrderPlacement(
+      orderType === OrderType.DINE_IN ? 'DINE_IN' : 'TAKEAWAY',
+      targetTable,
+      tables
+    );
+    if ('error' in placement) {
+      alert(placement.error);
+      return;
+    }
+    const tableId = placement.tableId;
+
     setSubmitMode(mode);
     setIsSubmitting(true);
-    const finalOrder: Order = {
-      id: orderId,
-      tenantId: tenantId,
-      customerName,
-      customerPhone,
-      tableNumber: orderType === OrderType.DINE_IN ? tableNumber : undefined,
-      address: orderType === OrderType.DELIVERY ? address : undefined,
-      locationLink: orderType === OrderType.DELIVERY ? locationLink : undefined,
-      orderType,
-      items: cart.map(i => ({ 
-        id: i.id,
-        name: i.name,
-        price: i.price,
-        quantity: i.quantity,
-        deliveredQuantity: i.deliveredQuantity,
-        status: i.status || ItemStatus.PENDING,
-        variantName: i.variantName
-      })),
-      totalAmount: finalTotal,
-      gstAmount,
-      gstPercentage: isGstEnabled ? gstPercentage : 0,
-      status: mode === 'SETTLE' ? OrderStatus.COMPLETED : OrderStatus.ACTIVE,
-      paymentMethod,
-      createdAt: initialOrder?.createdAt || new Date().toISOString(),
-      appliedOfferId: appliedOfferId
-    };
     
-    setTimeout(() => {
-      setIsSubmitting(false);
-      setFinalProcessedOrder(finalOrder);
-      onSave(finalOrder);
+    try {
+      const orderData: CreateOrderDto = {
+        orderType: orderType === OrderType.DINE_IN ? OrderType.DINE_IN : OrderType.TAKEAWAY,
+        customerName: customerName.trim() || undefined,
+        customerPhone: customerPhone.trim() || undefined,
+        items: cart.map(i => ({
+          menuItemId: i.id.split('-')[0],
+          quantity: i.quantity,
+          sizeId: i.id.includes('-') ? i.id.split('-')[1] : undefined
+        }))
+      };
+
+      const result = await createOrder(tableId, orderData);
+      const mapped = mapApiOrderToOrder(result, menuItems, tables);
+      const displayOrder = mergeDisplayedCheckoutOrder(mapped, {
+        customerName,
+        customerPhone,
+        subtotal: subtotalAmount,
+        gstAmount,
+        gstPercentage,
+        total: finalTotal,
+        cartLines: cart.map((c) => ({
+          id: c.id,
+          name: c.name,
+          price: c.price,
+          quantity: c.quantity,
+          variantName: c.variantName,
+        })),
+      });
+
+      setFinalProcessedOrder(displayOrder);
       setShowOrderSuccessModal(true);
-    }, 1200);
+      if (onSave) onSave(displayOrder);
+      
+    } catch (err) {
+      console.error('Failed to create order:', err);
+      alert('Failed to place order. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
 
   const handleItemClick = (item: MenuItem) => {
     if (!item.isAvailable) return;
-    if (item.hasVariants && item.variants && item.variants.length > 0) {
+    if (item.hasSizes && item.sizes && item.sizes.length > 0) {
       setVariantSelectionItem(item);
     } else {
       addToCart(item);
@@ -328,8 +367,8 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
             </div>
             
             <div className="space-y-3">
-              {variantSelectionItem.variants?.map((v, idx) => {
-                const variantId = `${variantSelectionItem.id}-${v.size}`;
+              {variantSelectionItem.sizes?.map((v, idx) => {
+                const variantId = `${variantSelectionItem.id}-${v.id}`;
                 const cartVariant = cart.find(i => i.id === variantId);
                 const qty = cartVariant?.quantity || 0;
 
@@ -339,8 +378,8 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
                     className={`w-full flex items-center justify-between p-4 rounded-[24px] border-2 transition-all ${qty > 0 ? 'bg-orange-50 border-[#D17842]' : 'bg-[#F9F5F2] border-transparent'}`}
                   >
                     <div className="flex flex-col">
-                      <span className="font-black text-sm uppercase tracking-wide">{v.size}</span>
-                      <span className="font-bold text-xs text-[#D17842]">{settings.currency} {v.price}</span>
+                      <span className="font-black text-sm uppercase tracking-wide">{v.name}</span>
+                      <span className="font-bold text-xs text-[#D17842]">{money(v.price)}</span>
                     </div>
                     
                     <div className="flex items-center gap-3">
@@ -426,7 +465,7 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
           <div className="flex items-center gap-4">
             <div className="flex flex-col items-end">
                <span className="text-[9px] font-black text-[#8E8E93] uppercase tracking-widest">Billing Total</span>
-               <span className="text-xl font-black text-[#D17842]">{settings.currency} {finalTotal.toLocaleString('en-IN')}</span>
+               <span className="text-xl font-black text-[#D17842]">{money(finalTotal)}</span>
             </div>
           </div>
         </div>
@@ -452,20 +491,20 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
                 
                 <button 
                   onClick={() => {
-                    const states: ('Both' | 'Veg' | 'Non-Veg')[] = ['Both', 'Veg', 'Non-Veg'];
+                    const states: ('All' | 'VEG' | 'NON_VEG')[] = ['All', 'VEG', 'NON_VEG'];
                     const next = states[(states.indexOf(dietaryFilter) + 1) % states.length];
                     setDietaryFilter(next);
                   }}
                   className={`flex items-center justify-center w-12 h-12 rounded-[20px] transition-all shadow-sm active:scale-90 border-2 shrink-0 ${
-                    dietaryFilter === 'Both' ? 'bg-white border-[#F1E7E1]' :
-                    dietaryFilter === 'Veg' ? 'bg-green-50 border-green-200' :
+                    dietaryFilter === 'All' ? 'bg-white border-[#F1E7E1]' :
+                    dietaryFilter === 'VEG' ? 'bg-green-50 border-green-200' :
                     'bg-red-50 border-red-200'
                   }`}
                 >
                   <DietaryIndicator 
-                    dietary={dietaryFilter === 'Both' ? 'All' : dietaryFilter} 
+                    dietary={dietaryFilter} 
                     size="md" 
-                    className={dietaryFilter === 'Both' ? '' : 'shadow-sm'} 
+                    className={dietaryFilter === 'All' ? '' : 'shadow-sm'} 
                   />
                 </button>
               </div>
@@ -510,7 +549,7 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
                       <div className="p-2 flex flex-col flex-1">
                         <h4 className="text-[12px] font-black text-[#1C1C1E] mb-1 line-clamp-1 leading-tight">{item.name}</h4>
                         <div className="flex items-center justify-between mt-auto">
-                           <p className="text-[11px] font-black text-[#D17842]">{settings.currency}{item.price}{item.hasVariants ? '+' : ''}</p>
+                           <p className="text-[11px] font-black text-[#D17842]">{money(item.price)}{item.hasVariants ? '+' : ''}</p>
                            {totalQty > 0 && !item.hasVariants && item.isAvailable ? (
                              <div className="flex items-center gap-1.5 bg-orange-50 rounded-lg p-1" onClick={e => e.stopPropagation()}>
                                <button onClick={() => removeFromCart(item)} className="p-1.5 bg-white rounded-md text-[#D17842] shadow-sm active:scale-90 transition-all"><Minus size={10} strokeWidth={3} /></button>
@@ -518,7 +557,7 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
                                <button onClick={() => addToCart(item)} className="p-1.5 bg-[#D17842] text-white rounded-md shadow-sm active:scale-90 transition-all"><Plus size={10} strokeWidth={3} /></button>
                              </div>
                            ) : (
-                             <p className="text-[8px] font-black text-green-600">{item.isAvailable ? item.stock : 'Sold Out'}</p>
+                             <p className="text-[8px] font-black text-green-600">{item.isAvailable ? 'Available' : 'Sold Out'}</p>
                            )}
                         </div>
                         <div className="mt-1.5 pt-1 border-t border-dashed border-gray-100 flex items-center justify-between">
@@ -540,7 +579,7 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
               <div className="bg-[#1C1C1E] text-white rounded-[28px] p-2 flex items-center justify-between shadow-2xl border border-white/10 backdrop-blur-md animate-in slide-in-from-bottom-6">
                 <div className="pl-6 flex flex-col">
                   <span className="text-[8px] font-black uppercase tracking-widest text-white/40">Amount</span>
-                  <p className="text-base font-black">{settings.currency}{subtotalAmount.toLocaleString('en-IN')}</p>
+                  <p className="text-base font-black">{money(subtotalAmount)}</p>
                 </div>
                 <button 
                   disabled={cart.length === 0}
@@ -578,15 +617,6 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
                     </div>
                     <span className="text-[10px] font-black uppercase tracking-[0.1em]">Takeaway</span>
                   </button>
-                  <button 
-                    onClick={() => setOrderType(OrderType.DELIVERY)} 
-                    className={`flex-1 flex flex-col items-center gap-3 py-8 rounded-[40px] border-2 transition-all group ${orderType === OrderType.DELIVERY ? 'bg-white border-[#D17842] text-[#D17842]' : 'bg-white border-[#F1E7E1] text-gray-300 hover:border-gray-200'}`}
-                  >
-                    <div className={`p-3 rounded-2xl transition-colors ${orderType === OrderType.DELIVERY ? 'bg-[#D17842]/5 text-[#D17842]' : 'bg-[#F9F5F2] text-gray-300'}`}>
-                      <Truck size={10} strokeWidth={2} />
-                    </div>
-                    <span className="text-[10px] font-black uppercase tracking-[0.1em]">Delivery</span>
-                  </button>
                 </div>
               </div>
 
@@ -602,34 +632,6 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
                         className="w-full px-8 py-5 rounded-[24px] border-2 border-[#F1E7E1] bg-white font-bold text-[#1C1C1E] focus:border-[#D17842] outline-none transition-all placeholder:text-gray-300" 
                         value={tableNumber} 
                         onChange={e => setTableNumber(e.target.value)} 
-                      />
-                    </div>
-                  )}
-                  {orderType === OrderType.DELIVERY && (
-                    <div className="space-y-3 animate-in slide-in-from-top-2">
-                      <div className="relative">
-                        <textarea 
-                          placeholder="Full Delivery Address" 
-                          className="w-full px-8 py-6 rounded-[32px] bg-white border-2 border-[#F1E7E1] font-bold min-h-[120px] focus:border-[#D17842] outline-none transition-all placeholder:text-gray-300" 
-                          value={address} 
-                          onChange={e => setAddress(e.target.value)} 
-                        />
-                        <button 
-                          type="button"
-                          onClick={handleGetCurrentLocation}
-                          disabled={isLocating}
-                          className="absolute bottom-4 right-4 p-3 bg-orange-50 text-[#D17842] rounded-2xl hover:bg-orange-100 transition-all active:scale-95 flex items-center gap-2 shadow-sm border border-orange-100"
-                        >
-                          {isLocating ? <RefreshCw size={16} className="animate-spin" /> : <MapPin size={16} />}
-                          <span className="text-[10px] font-black uppercase tracking-widest">{isLocating ? 'Locating...' : 'Get Exact Location'}</span>
-                        </button>
-                      </div>
-                      <input 
-                        type="text" 
-                        placeholder="Google Location Link (Optional)" 
-                        className="w-full px-8 py-5 rounded-[24px] bg-white border-2 border-[#F1E7E1] font-bold focus:border-[#D17842] outline-none transition-all placeholder:text-gray-300" 
-                        value={locationLink} 
-                        onChange={e => setLocationLink(e.target.value)} 
                       />
                     </div>
                   )}
@@ -721,7 +723,7 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
                               </span>
                             )}
                           </div>
-                          <p className="text-[11px] font-bold text-gray-400 mt-1">{settings.currency}{item.price.toLocaleString('en-IN')}</p>
+                          <p className="text-[11px] font-bold text-gray-400 mt-1">{money(item.price)}</p>
                         </div>
                       </div>
                       
@@ -731,7 +733,7 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
                           <span className="text-xs font-black w-4 text-center text-[#1C1C1E]">{item.quantity}</span>
                           <button onClick={() => updateQuantity(item.id, 1)} className="text-gray-400 hover:text-[#D17842] active:scale-75 transition-all"><Plus size={14} strokeWidth={4} /></button>
                         </div>
-                        <p className="text-[13px] font-black text-[#1C1C1E] min-w-[70px] text-right">{settings.currency}{(item.price * item.quantity).toLocaleString('en-IN')}</p>
+                        <p className="text-[13px] font-black text-[#1C1C1E] min-w-[70px] text-right">{money(item.price * item.quantity)}</p>
                       </div>
                     </div>
                   ))}
@@ -766,25 +768,25 @@ const NewOrder: React.FC<NewOrderProps> = ({ tenantId, initialOrder, initialStep
 
                     <div className="flex justify-between text-[11px] font-bold text-gray-400 uppercase tracking-[0.1em]">
                       <span>Subtotal</span>
-                      <span className="text-gray-600">{settings.currency}{subtotalAmount.toLocaleString('en-IN')}</span>
+                      <span className="text-gray-600">{money(subtotalAmount)}</span>
                     </div>
 
                     {appliedOfferId && discountAmount > 0 && (
                       <div className="flex justify-between text-[11px] font-bold text-green-600 uppercase tracking-[0.1em] animate-in slide-in-from-top-2">
                         <span>Discount ({selectedOffer?.title})</span>
-                        <span>-{settings.currency}{discountAmount.toLocaleString('en-IN')}</span>
+                        <span>-{money(discountAmount)}</span>
                       </div>
                     )}
 
                     {isGstEnabled && (
                       <div className="flex justify-between text-[11px] font-bold text-gray-400 uppercase tracking-[0.1em] animate-in slide-in-from-top-2">
                         <span>GST ({gstPercentage}%) {discountAmount > 0 ? 'on Net' : ''}</span>
-                        <span className="text-gray-600">{settings.currency}{gstAmount.toLocaleString('en-IN')}</span>
+                        <span className="text-gray-600">{money(gstAmount)}</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center pt-4">
                       <span className="text-[11px] font-black uppercase text-[#1C1C1E] tracking-[0.2em]">Total Billing</span>
-                      <span className="text-3xl font-black text-[#D17842] tracking-tighter">{settings.currency}{finalTotal.toLocaleString('en-IN')}</span>
+                      <span className="text-3xl font-black text-[#D17842] tracking-tighter">{money(finalTotal)}</span>
                     </div>
                   </div>
                 </div>

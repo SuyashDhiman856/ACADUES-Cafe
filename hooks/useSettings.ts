@@ -4,7 +4,7 @@ import { settingsAPI, Settings } from "../api/settings";
 
 import { SystemSettings } from "../types/systemSettings";
 
-import { mapSettingsToSystemSettings } from "../mappers/settings.mapper";
+import { mapSettingsToSystemSettings, reverseMapSystemSettingsToSettings } from "../mappers/settings.mapper";
 
 
 interface UseSettingsReturn {
@@ -18,7 +18,7 @@ interface UseSettingsReturn {
   fetchSettings: () => Promise<void>;
 
   updateSettings: (
-    dto: Partial<Settings>
+    newSettings: SystemSettings
   ) => Promise<SystemSettings | null>;
 
 }
@@ -77,7 +77,7 @@ export const useSettings =
   const updateSettings =
     useCallback(
       async (
-        dto: Partial<Settings>
+        newSettings: SystemSettings
       ): Promise<SystemSettings | null> => {
 
         try {
@@ -85,6 +85,8 @@ export const useSettings =
           setLoading(true);
 
           setError(null);
+
+          const dto = reverseMapSystemSettingsToSettings(newSettings);
 
           const updated =
             await settingsAPI.update(dto);

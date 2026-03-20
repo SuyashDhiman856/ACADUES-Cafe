@@ -21,10 +21,13 @@ import Offers from "./pages/Offers";
 import Orders from "./pages/Orders";
 import SelfOrder from "./pages/SelfOrder";
 import Profile from "./pages/Profile";
+import TableOrdering from "./pages/TableOrdering";
 
 import { useSettings } from "./hooks/useSettings";
 import { useMenu } from "./hooks/useMenu";
 import { useOrders } from "./hooks/useOrders";
+import { useTables } from "./hooks/useTables";
+import { mapApiOrderToOrder } from "./mappers/order.mapper";
 import { StaffMember, Offer, Order, OrderStatus } from "./types";
 
 export interface CustomerRecord {
@@ -39,8 +42,15 @@ const App: React.FC = () => {
 
   const { settings } = useSettings();
   const { menuItems, loading: menuLoading } = useMenu();
-  const { orders: ordersData, loading: ordersLoading, createOrder, updateOrderStatus } = useOrders();
-  const orders = Array.isArray(ordersData) ? ordersData as unknown as Order[] : [];
+  const { tables } = useTables();
+  const { orders: apiOrders } = useOrders();
+  const orders = useMemo(
+    () =>
+      (Array.isArray(apiOrders) ? apiOrders : []).map((o) =>
+        mapApiOrderToOrder(o, menuItems, tables)
+      ),
+    [apiOrders, menuItems, tables]
+  );
 
   const [currentUser, setCurrentUser] =
     useState<StaffMember | null>(
@@ -81,7 +91,7 @@ const App: React.FC = () => {
         };
       }
       customerMap[o.customerPhone].orderCount++;
-      if (o.status === OrderStatus.COMPLETED) {
+      if (o.status === OrderStatus.SERVED) {
         customerMap[o.customerPhone].totalSpend += o.totalAmount;
       }
       if (new Date(o.createdAt).getTime() > new Date(customerMap[o.customerPhone].lastVisit).getTime()) {
@@ -184,6 +194,8 @@ const App: React.FC = () => {
         return <SelfOrder />;
       case "profile":
         return <Profile />;
+      case "table-ordering":
+        return <TableOrdering />;
       default:
         return (
           <Dashboard
