@@ -1,0 +1,421 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////
+
+enum Role {
+  OWNER
+  CHEF
+  CUSTOMER
+}
+
+enum OrderStatus {
+  CREATED
+  SENT_TO_KITCHEN
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+enum OfferType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+//////////////////////////////////////////////////
+// USER MODEL
+//////////////////////////////////////////////////
+
+model User {
+  id       String @id @default(uuid())
+  name     String
+  email    String @unique
+  phone    String @unique
+  password String
+  role     Role
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  customerOrders Order[] @relation("CustomerOrders")
+  chefOrders     Order[] @relation("ChefOrders")
+  expensesCreated Expense[] @relation("ExpenseCreator")
+  expensesApproved Expense[] @relation("ExpenseApprover")
+
+  @@index([email])
+  @@index([phone])
+}
+
+//////////////////////////////////////////////////
+// TABLE MODEL
+//////////////////////////////////////////////////
+
+model Table {
+  id          String @id @default(uuid())
+  tableNumber Int    @unique
+  qrCodeUrl   String
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  orders Order[]
+  carts  Cart[]
+
+  @@index([tableNumber])
+}
+
+//////////////////////////////////////////////////
+// CATEGORY MODEL
+//////////////////////////////////////////////////
+
+model Category {
+  id   String @id @default(uuid())
+  name String @unique
+
+  createdAt DateTime @default(now())
+
+  menuItems MenuItem[]
+}
+
+//////////////////////////////////////////////////
+// MENU ITEM MODEL
+//////////////////////////////////////////////////
+
+enum FoodType {
+  VEG
+  NON_VEG
+}
+
+model MenuItem {
+  id String @id @default(uuid())
+
+  name        String
+  description String?
+
+  price Float?
+
+  imageUrl String?
+
+  foodType FoodType
+
+  hasSizes Boolean @default(false)
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  isAvailable Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sizes MenuItemSize[]
+
+  // Relations
+  orderItems OrderItem[]
+  cartItems  CartItem[]
+
+  @@index([name])
+  @@index([categoryId])
+}
+
+//////////////////////////////////////////////////
+// MENU ITEM SIZE MODEL
+//////////////////////////////////////////////////
+
+model MenuItemSize {
+  id String @id @default(uuid())
+
+  name String // Small, Medium, Large
+
+  price Float
+
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  cartItems CartItem[]
+  orderItems OrderItem[]
+}
+
+//////////////////////////////////////////////////
+// ORDER MODEL
+//////////////////////////////////////////////////
+
+model Order {
+  id String @id @default(uuid())
+
+  customerId String?
+  customer   User?   @relation("CustomerOrders", fields: [customerId], references: [id])
+
+  tableId String?
+  table   Table?  @relation(fields: [tableId], references: [id])
+
+  chefId String?
+  chef   User?   @relation("ChefOrders", fields: [chefId], references: [id])
+
+  status OrderStatus @default(CREATED)
+
+  orderType OrderType
+
+  gstRate Float
+
+  discount Float @default(0)
+
+  subtotal Float
+
+  totalAmount Float
+
+  notes String?
+
+  offerId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  orderItems OrderItem[]
+  payment    Payment?
+  offer      Offer?   @relation(fields: [offerId], references: [id])
+
+  @@index([customerId])
+  @@index([chefId])
+  @@index([tableId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+//////////////////////////////////////////////////
+// ORDER ITEM MODEL
+//////////////////////////////////////////////////
+
+model OrderItem {
+  id String @id @default(uuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+
+  menuItemSizeId String?
+  menuItemSize   MenuItemSize? @relation(fields: [menuItemSizeId], references: [id])
+
+  quantity Int
+
+  price Float
+
+  total Float
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([menuItemId])
+  @@index([menuItemSizeId])
+}
+
+//////////////////////////////////////////////////
+// SETTINGS MODEL
+//////////////////////////////////////////////////
+
+model Settings {
+  id String @id @default(uuid())
+
+  restaurantName String
+
+  contactPhone String
+
+  contactEmail String?
+
+  physicalAddress String
+
+  geoLatitude Float?
+
+  geoLongitude Float?
+
+  logoUrl String?
+
+  themeColor String @default("#000000")
+
+  currency String @default("INR")
+
+  upiId String?
+
+  gstNumber String?
+
+  gstPercentage Float @default(18)
+
+  totalTables Int @default(0)
+
+  enableWhatsappNotifications Boolean @default(false)
+
+  enableChefAutoAssign Boolean @default(false)
+
+  enableAutoAcceptOrders Boolean @default(true)
+
+  maintenanceMode Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+}
+
+model StaffMember {
+  id String @id @default(uuid())
+
+  fullName String
+
+  email String @unique
+
+  phone String @unique
+
+  role Role
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+}
+
+//////////////////////////////////////////////////
+// CART MODEL
+//////////////////////////////////////////////////
+
+model Cart {
+  id String @id @default(uuid())
+
+  tableId String
+  table   Table  @relation(fields: [tableId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  cartItems CartItem[]
+
+  @@index([tableId])
+}
+
+//////////////////////////////////////////////////
+// CART ITEM MODEL
+//////////////////////////////////////////////////
+
+model CartItem {
+  id String @id @default(uuid())
+
+  cartId String
+  cart   Cart   @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+
+  menuItemSizeId String?
+  menuItemSize   MenuItemSize? @relation(fields: [menuItemSizeId], references: [id])
+
+  quantity Int
+
+  createdAt DateTime @default(now())
+
+  @@index([cartId])
+  @@index([menuItemId])
+  @@index([menuItemSizeId])
+}
+
+//////////////////////////////////////////////////
+// PAYMENT MODEL
+//////////////////////////////////////////////////
+
+model Payment {
+  id String @id @default(uuid())
+
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  amount Float
+
+  status PaymentStatus @default(PENDING)
+
+  method String
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+}
+
+//////////////////////////////////////////////////
+// EXPENSE MODEL
+//////////////////////////////////////////////////
+
+model Expense {
+  id            String        @id @default(uuid())
+  description   String
+  amount        Float
+  category      String
+  date          DateTime
+  createdById   String?
+  createdBy     User?         @relation("ExpenseCreator", fields: [createdById], references: [id])
+  approvedById  String?
+  approvedBy    User?         @relation("ExpenseApprover", fields: [approvedById], references: [id])
+  status        ExpenseStatus @default(PENDING)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([createdById])
+  @@index([approvedById])
+  @@index([status])
+  @@index([date])
+}
+
+//////////////////////////////////////////////////
+// OFFER MODEL
+//////////////////////////////////////////////////
+
+model Offer {
+  id            String     @id @default(uuid())
+  name          String
+  description   String?
+  type          OfferType
+  value         Float
+  minOrderValue Float?
+  isActive      Boolean    @default(true)
+  validFrom     DateTime
+  validTo       DateTime
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  // Relations
+  orders Order[]
+
+  @@index([isActive])
+  @@index([validFrom])
+  @@index([validTo])
+}
